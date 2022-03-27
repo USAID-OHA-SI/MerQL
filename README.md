@@ -4,12 +4,7 @@
 <!-- badges: start -->
 <!-- badges: end -->
 
-<<<<<<< HEAD
 The goal of MerQL is to help OHA SI Analysts setup a local Postgres Database for PEPFAR/Datim + PANORAMA Datasets 
-=======
-The goal of MerQL is to parse out PEPFAR/Datim Reference tables into a local postgres database ...
->>>>>>> 7f69d46 (Add documentation)
-
 
 ---
 
