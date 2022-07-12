@@ -31,6 +31,78 @@ get_key <- function(service, name) {
 }
 
 
+#' @title Check Service
+#'
+#'
+check_service <- function(service) {
+  keys <- keyring::key_list()
+  service %in% keys$service
+}
+
+#' @title Check Service
+#'
+#'
+check_key <- function(service, name) {
+  keys <- keyring::key_list()
+  name %in% keys[keys$service == service,]$username
+}
+
+#' @title Get Services
+#'
+#'
+get_services <- function() {
+  keys <- keyring::key_list()
+  keys$service
+}
+
+#' @title Get Service Keys
+#'
+#'
+get_keys <- function(service) {
+  keys <- keyring::key_list()
+  keys[keys$service == service,]$username
+}
+
+#' @title Get Account Details
+get_account <- function(svc, key){
+
+  package_check('keyring')
+
+  if(!is_stored(svc)) {
+
+    if(!interactive())
+      ui_stop("NO DATIM credentials stored. Setup using {ui_code('set_datim()')}")
+
+    # Offer to capture info from console
+    resp <- readline(prompt = "Enter Datim Account Username:")
+
+    # Check response
+    if (resp == ""){
+      base::stop("NO {service}/{key} value detected. Set info with {ui_code('set_key()')}")
+    }
+
+    # Confirm reception
+    base::message("DATIM credentials received.")
+
+    # Offer to store info
+    store <- readline(prompt = "Do you want to store your response for future use? [Y/n]")
+
+    # Store info only if user agreed
+    if (store == "Y") {
+      set_key(svc, key)
+      base::print("Response stored on your system")
+    }
+
+    return(resp)
+  }
+
+  if(!is.loaded(account))
+    suppressMessages(load_secrets())
+
+  keyring::key_list(svc)[1,2]
+}
+
+
 #' @title Postgres Environment
 #'
 #' @param env Name of environment service
@@ -89,13 +161,14 @@ pg_pwd <- function(env = "local") {
 #' @param db_user
 #' @param db_pwd
 #'
-pg_connection <- function(db_host = pg_host(),
+pg_connection <- function(db_driver = RPostgres::Postgres(),
+                          db_host = pg_host(),
                           db_port = pg_port(),
                           db_name = pg_database(),
                           db_user = pg_user(),
                           db_pwd = pg_pwd()) {
 
-  DBI::dbConnect(drv = RPostgres::Postgres(),
+  DBI::dbConnect(drv = db_driver,
                  host = db_host,
                  port = db_port,
                  dbname = db_name,
@@ -114,7 +187,8 @@ pg_connection <- function(db_host = pg_host(),
 #' @param db_pwd
 #' @param db_file
 #'
-db_connection <- function(db_host = pg_host(),
+db_connection <- function(db_driver = RPostgres::Postgres(),
+                          db_host = pg_host(),
                           db_port = pg_port(),
                           db_name = pg_database(),
                           db_user = pg_user(),
@@ -123,10 +197,10 @@ db_connection <- function(db_host = pg_host(),
 
   conn <- NULL
 
-  if (!base::is.null(db_file)) {
-    conn <- dbConnect(RSQLite::SQLite(), db_file)
+  if (!base::is.null(db_name) & str_detect(db_name, ".*[.]db$|.*[.]sqlite$")) {
+    conn <- RSQLite::dbConnect(RSQLite::SQLite(), db_file)
   } else {
-    conn <- pg_connection(db_host, db_port, db_name, db_user, db_pwd)
+    conn <- pg_connection(db_driver, db_host, db_port, db_name, db_user, db_pwd)
   }
 
   return(conn)
@@ -175,15 +249,24 @@ db_list <- function(conn) {
 }
 
 
+#' @title Get current database
+#'
+#'
+db_in_use <- function(conn) {
+  conn_info <- DBI::dbGetInfo(conn)
+  db_name <- conn_info$dbname
+
+  return(db_name)
+}
+
+
 #' @title List database schemas
 #'
 db_schemas <- function(conn) {
 
-  conn_info <- DBI::dbGetInfo(conn)
+  db_name <- db_in_use(conn)
 
-  db_name <- conn_info$dbname
-
-  print(paste0("DB = ", db_name))
+  usethis::ui_info(glue::glue("Current Database [{db_name}]"))
 
   sql_cmd <- "
     SELECT DISTINCT table_catalog, table_schema
@@ -210,12 +293,9 @@ db_tables <- function(conn,
                       schema = NULL,
                       details = FALSE) {
 
-  conn_info <- DBI::dbGetInfo(conn)
+  db_name <- db_in_use(conn)
 
-  db_name <- conn_info$dbname
-
-  print(paste0("DB = ", db_name, ", SCHEMA = ",
-               base::ifelse(base::is.null(schema), "All", schema)))
+  #usethis::ui_info(glue::glue("Current Database [{db_name}]"))
 
   sql_cmd <- "
     SELECT DISTINCT table_schema, table_name, table_type
@@ -224,10 +304,6 @@ db_tables <- function(conn,
     AND table_catalog = $1
     ORDER BY table_name;
   "
-
-  conn_info <- DBI::dbGetInfo(conn)
-
-  db_name <- conn_info$dbname
 
   query <- DBI::dbGetQuery(conn, sql_cmd, params = list(db_name))
 
@@ -241,13 +317,196 @@ db_tables <- function(conn,
     return(tbls)
   }
 
-  tbls <- tbls %>% dplyr::pull(table_name)
+  tbls <- tbls %>%
+    dplyr::mutate(
+      name = dplyr::case_when(
+        table_schema == "public" ~ table_name,
+        TRUE ~ paste0(table_schema, ".", table_name)
+      )
+    ) %>%
+    dplyr::pull(name)
 
   return(tbls)
 }
 
 
+#' @title Check if table exists
+#'
+#'
+db_table_exists <- function(conn, tbl_name) {
+
+  tbls <- db_tables(conn)
+
+  tbl_name %in% tbls
+}
+
+
 #' @title
+#'
+db_create_table <- function(tbl_name, fields,
+                            conn = NULL,
+                            meta = NULL,
+                            pkeys = NULL,
+                            overwrite = FALSE,
+                            load_data = TRUE) {
+  # Check Connection
+  if (is.null(conn))
+    conn <- db_connection()
+
+  db_name <- db_in_use(conn)
+
+  usethis::ui_info(glue::glue("Current Database [{db_name}]"))
+
+  # Extract schema
+  if(str_detect(tbl_name, ".*[.].*")) {
+    schema <- str_extract(tbl_name, ".*(?=\\.)")
+    name <- str_extract(tbl_name, "(?<=\\.).*")
+  } else {
+    schema <- "public"
+    name <- tbl_name
+  }
+
+  # Check existing tables
+  usethis::ui_info(glue::glue("Schema: {schema}"))
+  usethis::ui_info(glue::glue("Table: {name}"))
+
+  tbls <- db_tables(conn, schema)
+
+  tbl_exists <- tbl_name %in% tbls
+
+  usethis::ui_info(glue::glue("Exists: {tbl_exists}"))
+
+  # Check / Set columns data types
+  if (!base::is.null(meta)) {
+    if (!all(names(fields) %in% names(meta))) {
+      cols_missing <- setdiff(
+        names(fields), names(meta[names(fields) %in% names(meta)])) %>%
+        base::paste(collapse = ", ")
+
+      usethis::ui_stop(glue::glue("Missing column(s) from {tbl_name}: {cols_missing}"))
+    }
+
+    cols <- meta[names(meta) %in% names(fields)]
+  }
+
+  # Drop Table
+  if(overwrite & tbl_exists) {
+    db_drop_table(tbl_name, conn)
+  }
+
+  # Create table
+  usethis::ui_info("Creating table ...")
+
+  if (!base::is.null(meta)) {
+    DBI::dbCreateTable(conn, tbl_name, fields = cols)
+
+  } else {
+    DBI::dbCreateTable(conn, tbl_name, fields = fields)
+  }
+
+  # Add Primary Keys
+  if (!base::is.null(pkeys)) {
+
+    pkeys <- base::paste(pkeys, collapse = ", ")
+
+    usethis::ui_info(glue::glue("Adding PKEY(s): {pkeys}"))
+
+    cmd <- glue::glue_sql("ALTER TABLE {SQL(tbl_name)} ADD PRIMARY KEY ({SQL(pkeys)});",
+                          .con = conn)
+
+    res <- DBI::dbExecute(conn, cmd)
+
+    base::stopifnot(res == 0)
+  }
+
+  # Insert data
+  if(load_data & is.data.frame(fields) & nrow(fields) > 0) {
+    usethis::ui_info(glue::glue("Appending data ... {nrow(fields)}"))
+    DBI::dbAppendTable(conn, tbl_name, fields)
+  }
+
+  usethis::ui_done("Complete!")
+}
+
+#' @title Update / Alter Table Add PKEYs
+#'
+#'
+db_update_table <- function(tbl_name, conn = NULL, pkeys = NULL, fkeys = NULL) {
+
+  if (base::is.null(pkeys) & base::is.null(fkeys)) {
+    usethis::ui_stop("Missing required one of keys: primary or foreign")
+  }
+
+  # Add Primary Keys
+  if (!base::is.null(pkeys)) {
+
+    pkeys <- base::paste(pkeys, collapse = ", ")
+
+    usethis::ui_info(glue::glue("Adding PKEY(s): {pkeys}"))
+
+    cmd <- glue::glue_sql("ALTER TABLE {DBI::SQL(tbl_name)} ADD PRIMARY KEY ({DBI::SQL(pkeys)});",
+                          .con = conn)
+
+    res <- DBI::dbExecute(conn, cmd)
+
+    base::stopifnot(res == 0)
+  }
+
+  # Add Foreign Keys
+  if (!base::is.null(fkeys)) {
+
+    fkeys %>%
+      names() %>%
+        walk(function(.k) {
+
+          ftbl <- .k
+          pkeys <- base::paste(fkeys[[.k]], collapse = ", ")
+          fkeys <- base::paste(fkeys[[.k]], collapse = ", ")
+
+          usethis::ui_info(glue::glue("Adding Foreign Key(s): {tbl_name} ({pkeys}) => {ftbl} ({fkeys})"))
+
+          # cmd <- glue::glue_sql("ALTER TABLE {DBI::SQL(tbl_name)} ADD FOREIGN KEY ({DBI::SQL(pkeys)}) REFERENCES {DBI::SQL(ftbl)} ({DBI::SQL(fkeys)});",
+          #                       .con = conn)
+
+          cmd <- DBI::SQL(glue::glue("ALTER TABLE {tbl_name} ADD FOREIGN KEY ({pkeys}) REFERENCES {ftbl} ({fkeys});",
+                                .con = conn))
+
+          print(cmd)
+
+          res <- DBI::dbExecute(conn, cmd)
+
+          base::stopifnot(res == 0)
+        })
+  }
+
+}
+
+#' @title Drop Table from Database
+#'
+db_drop_table <- function(tbl_name, conn = NULL) {
+  # Check Connection
+  if (is.null(conn))
+    conn <- db_connection()
+
+  db_name <- db_in_use(conn)
+
+  # Check table exists before dropping
+  if (db_table_exists(conn, tbl_name)) {
+
+    usethis::ui_info(glue::glue("Dropping table [{tbl_name}] from [{db_name}] ..."))
+
+    # Drop Table
+    DBI::dbRemoveTable(conn, tbl_name)
+
+    usethis::ui_done("Table Dropped!")
+
+  } else {
+    usethis::ui_stop(glue::glue("Table [{tbl_name}] does not exist in database [{db_name}]"))
+  }
+}
+
+#' @title
+#'
 db_define <- function() {}
 
 #' @title
@@ -259,22 +518,467 @@ db_query <- function() {}
 #' @title
 db_control <- function() {}
 
+#' @title
+#'
+find_pkeys <- function(.df, colnames = FALSE) {
+  combos <- .df %>%
+    names() %>%
+    accumulate(c)
 
-# ----
-# df return - dbFetch is executed to retrieve data
+  checks <- combos %>%
+    map(syms) %>%
+    map_lgl(~{
+      .df %>%
+        add_count(!!!.x) %>%
+        filter(.data$n > 1) %>%
+        nrow() %>%
+        equals(0)
+    })
+
+  if (colnames)
+    return(subset(combos, checks))
+
+  which(checks)
+}
+
+
+#' @title Check if URL is valid
+#'
+host_ping <- function(base_url) {
+
+  p_url <- httr::parse_url(base_url)
+  host <- p_url$hostname
+  res_p <- pingr::ping(host)
+  check <- !base::any(base::is.na(res_p))
+
+  if(!check) {
+    msg <- stringr::str_c(base_url, " does not seem to be responding. Check your base url.")
+    base::message(msg)
+  }
+
+  return(check)
+}
+
+#' @title Check is resource is online
+#'
+host_is_online <- function(base_url){
+  pingr::is_online(base_url)
+}
+
+
+#' @title Clean Datim Modalities
+#'
+datim_clean_modalities <- function(dim_mods) {
+
+  dim_mods %>%
+    mutate(
+      fiscal_year = str_extract(item, "(?<=[:space:]FY).*"),
+      fiscal_year = paste0("FY", fiscal_year),
+      sitetype = str_extract(item, ".*(?=[:space:]-)"),
+      name = str_extract(item, ".*(?=[:space:]FY)"),
+      short_name = str_extract(name, "(?<=-[:space:]).*"),
+      short_name = case_when(
+        short_name == "PMTCT ANC1 Only" ~ "PMTCT ANC",
+        short_name == "PMTCT Post ANC1" ~ "Post ANC1",
+        short_name == "Other Services" ~ "Other",
+        short_name == "Home Based" ~ "Home",
+        short_name %in% c("Other PITC", "TB Clinic") ~ str_replace(short_name, " ", ""),
+        TRUE ~ short_name
+      ),
+      short_name = case_when(
+        sitetype == "Community" ~ paste0(short_name, "Com"),
+        TRUE ~ short_name
+      )
+    )
+}
+
+
+#' @title Datim Resources
+#'
+datim_resources <- function(...,
+                            res_name = NULL,
+                            dataset = FALSE,
+                            username = NULL,
+                            password = NULL,
+                            base_url = NULL) {
+  # datim credentials
+  if (missing(username))
+    username <- datim_user()
+
+  if (missing(password))
+    password <- datim_pwd()
+
+  # Base url
+  if (missing(base_url))
+    base_url <- "https://final.datim.org"
+
+  if(!host_is_online(base_url))
+    base::stop(base::paste0("The resource seems to be offline: ", base_url))
+
+  # URL Query Options
+  options <- "?format=json&paging=false"
+
+  # List of columns
+  cols <- list(...)
+
+  print(paste0(cols))
+
+  # API URL
+  api_url <- base_url %>%
+    paste0("/api/resources", options)
+
+  # Query data
+  data <- api_url %>%
+    datim_execute_query(username, password, flatten = TRUE) %>%
+    purrr::pluck("resources") %>%
+    tibble::as_tibble()
+
+  data <- data %>% rename(name = displayName)
+
+  # Filter if needed
+  if (!base::is.null(res_name)) {
+    data <- data %>%
+      filter(name == res_name)
+  }
+
+  # Return only the url when results is just 1 row
+  if(base::nrow(data) == 1 && dataset == FALSE) {
+    return(data$href)
+
+  } else if (base::nrow(data) == 1 && dataset == TRUE) {
+
+    dta_url <- data$href
+    print(dta_url)
+
+    end_point <- dta_url %>%
+      str_split("\\/") %>%
+      unlist() %>%
+      last()
+
+    dta_url <- dta_url %>% paste0(options)
+
+    print(length(cols))
+
+    if (length(cols) > 0) {
+      dta_url <- dta_url %>%
+        paste0("&fields=", paste0(cols, collapse = ","))
+    } else {
+      dta_url <- dta_url %>%
+        paste0("&fields=:nameable")
+    }
+
+    print(dta_url)
+
+    data <- dta_url %>%
+      datim_execute_query(username, password, flatten = TRUE) %>%
+      purrr::pluck(end_point) %>%
+      tibble::as_tibble()
+  }
+
+  return(data)
+}
+
+#' @title DATIM Data Elements
+#'
+#'
+datim_dataements <- function() {
+  datim_resources(res_name = "Data Elements", dataset = T) %>%
+    select(uid = id, code, dataelement = name, shortname = shortName, description) %>%
+    filter(str_detect(dataelement, "\\(|\\)", negate = F)) %>%
+    mutate(
+      dataelement_type = case_when(
+        str_detect(dataelement, ".*\\)[:space:]TARGET") ~ "Targets",
+        TRUE ~ "Results"
+      ),
+      indicator = str_extract(dataelement, ".*(?=[:space:]\\()"),
+      disaggs = extract_text(dataelement, "()")
+    ) %>%
+    separate(col = disaggs,
+             into = c("numeratordenom", "indicatortype", "disaggregate"),
+             sep = ", ",
+             remove = T) %>%
+    relocate(description, .after = last_col())
+}
+
+
+#' @title Get Datim Data Elements SQLView
+#' @note: TODO: Replace datasetuid with datasetname
+#'
+datim_deview <- function(datasetuid) {
+
+  df_deview <- datim_sqlviews(
+    view_name = "Data sets, elements and combos paramaterized",
+    dataset = TRUE,
+    query = list("dataSets" = datasetuid))
+
+  df_deview %>%
+    separate(dataset,
+             into = c("source", "category"),
+             sep = ": ",
+             remove = F) %>%
+    mutate(
+      type = case_when(
+        str_detect(source, " Targets$|.*Target.*") ~ "Targets",
+        TRUE ~ "Results")) %>%
+    select(dataset, source, category, type,
+           dataelementuid, code, dataelement, shortname, dataelementdesc,
+           categoryoptioncombouid, categoryoptioncombocode, categoryoptioncombo,
+           everything())
+}
+
+#' @title Data Elements
+#'
+datim_data_elementsss <- function(username = NULL,
+                                password = NULL,
+                                base_url = NULL) {
+
+  # datim credentials
+  if (missing(username))
+    username <- datim_user()
+
+  if (missing(password))
+    password <- datim_pwd()
+
+  # Base url
+  if (missing(base_url))
+    base_url <- "https://final.datim.org"
+
+  # API URL
+  api_url <- base_url %>%
+    paste0("/api/dataElements?format=json&paging=false&fields=:nameable")#:identifiable
+
+  data <- api_url %>%
+    datim_execute_query(username, password, flatten = TRUE) %>%
+    purrr::pluck("dataElements") %>%
+    tibble::as_tibble()
+
+  print(data)
+}
+
+
+#' @title Datim SQLViews
+#'
+datim_sqlviews <- function(view_name = NULL,
+                           dataset = FALSE,
+                           datauid = NULL,
+                           query = NULL,
+                           username = NULL,
+                           password = NULL,
+                           base_url = NULL) {
+
+  # Datim credentials
+  if (missing(username))
+    username <- glamr::datim_user()
+
+  if (missing(password))
+    password <- glamr::datim_pwd()
+
+  # Base url
+  if (missing(base_url))
+    base_url <- "https://final.datim.org"
+
+  # Other Options
+  end_point <- "/api/sqlViews/"
+
+  options <- "?format=json&paging=false&"
+
+  # API URL
+  api_url <- base_url %>% paste0(end_point, options)
+
+  # Query data
+  data <- api_url %>%
+    glamr::datim_execute_query(username, password, flatten = TRUE) %>%
+    purrr::pluck("sqlViews") %>%
+    tibble::as_tibble() %>%
+    dplyr::rename(uid = id, name = displayName)
+
+  # Filter if needed
+  if (!base::is.null(view_name)) {
+
+    print(glue::glue("Searching for SQL View: {view_name} ..."))
+
+    data <- data %>%
+      dplyr::filter(stringr::str_to_lower(name) == str_to_lower(view_name))
+    # dplyr::filter(
+    #   str_detect(stringr::str_to_lower(name),
+    #     base::paste0("^", str_to_lower(view_name))))
+  }
+
+  # Number of rows
+  rows = base::nrow(data)
+
+  # Return only ID when results is just 1 row
+  if(rows == 0) {
+    base::warning("No match found for the requested SQL View")
+    return(NULL)
+  }
+  # Flag non-unique sqlview names
+  else if (rows > 1 && dataset == TRUE) {
+    base::warning("There are more than 1 match for the requested SQL View data. Please try to be specific.")
+    print(data)
+    return(NULL)
+  }
+  # Return only ID when results is just 1 row
+  else if (rows == 1 && dataset == FALSE) {
+    return(data$uid)
+  }
+  # Return SQLVIEW data
+  else if(base::nrow(data) == 1 && dataset == TRUE) {
+
+    dta_uid <- data$uid
+
+    print(data$uid)
+
+    dta_url <- base_url %>%
+      paste0(end_point, dta_uid, "/data", options, "&fields=*") #:identifiable, :nameable
+
+    # apply query whenever needed
+    if (!is.null(query)) {
+      q <- names(query) %>%
+        map_chr(~paste0("var=", .x, ":", query[.x])) %>%
+        paste0("&", .)
+
+      print(glue::glue("SQL View query: {q}"))
+
+      dta_url <- dta_url %>% paste0(q)
+    }
+
+    print(glue::glue("SQL View url: {dta_url}"))
+
+    # Query data
+    data <- dta_url %>%
+      datim_execute_query(username, password, flatten = TRUE)
+
+    print(data$status)
+
+    # Detect Errors
+    if (!is.null(data$status)) {
+      print(glue::glue("Status: {data$status}"))
+
+      if(!is.null(data$message)) {
+        print(glue::glue("Message: {data$message}"))
+      }
+
+      return(NULL)
+    }
+
+    # Headers
+    headers <- data %>%
+      purrr::pluck("listGrid") %>%
+      purrr::pluck("headers") %>%
+      dplyr::pull(column)
+
+    # Data
+    data <- data %>%
+      purrr::pluck("listGrid") %>%
+      purrr::pluck("rows") %>%
+      tibble::as_tibble(.name_repair = "unique") %>%
+      janitor::clean_names() %>%
+      magrittr::set_colnames(headers)
+  }
+
+  return(data)
+}
+
+#' @title Datim Period Information SQLView
 #
-# DQL - Send and execute Query, retrieve results
-#dbGetQuery()
+#
+datim_peview <- function() {
 
-# DQL - Send and execute Query, no results retrieved
-#dbSendQuery()
+  df_peview <- datim_sqlviews(
+    view_name = "Period information",
+    dataset = TRUE)
 
-# DML - Execute an update statement, query n of rows affected
-#dbExecute()
+  df_peview %>%
+    mutate(
+      period = case_when(
+        periodtype == "Daily" ~ paste0("FY", str_sub(iso, 3,4), "M", str_sub(iso, 5,6), "D", str_sub(iso, 7, 8)),
+        str_detect(periodtype, "Weekly") ~ paste0("FY", str_sub(iso, 3,4), str_sub(iso, 5)),
+        periodtype == "Monthly" ~ paste0("FY", str_sub(iso, 3,4), "M", str_sub(iso, 5)),
+        TRUE ~ paste0("FY", str_sub(iso, 3,4), str_sub(iso, 5))
+      )
+    ) %>%
+    rename(
+      period_id = periodid,
+      period_iso = iso,
+      period_type = periodtype
+    ) %>%
+    select(starts_with("period"), everything())
+}
 
-# DML - Execute a data manipulation statement
-#dbSendStatement()
+#' @title Datim Mechanism SQLView
+#'
+#'
+datim_mechview <- function() {
 
-# DCL - GRANT & REVOKE
+  df_mechview <- datim_sqlviews(
+    view_name = "Mechanisms partners agencies OUS Start End",
+    dataset = TRUE)
 
-# TCL - COMMIT, SAVEPOINT, ROLLBACK, SET transaction, SET constraint
+  df_mechview %>%
+    rename(
+      mech_code = code,
+      operatingunit = ou,
+      prime_partner = partner,
+      prime_partner_id = primeid,
+      funding_agency = agency
+    ) %>%
+    mutate(
+      mech_name = str_remove(mechanism, mech_code),
+      award_number = str_extract(mech_name, "(?<=-[:space:]).*(?=[:space:]-)"),
+      mech_name = str_trim(mech_name),
+      mech_name = str_remove(mech_name, "-[:space:].*[:space:]-[:space:]|-[:space:]")
+    ) %>%
+    select(uid, mech_code, mech_name, mechanism, everything())
+}
+
+
+#' @title Datim OU/Partners SQLView
+#'
+#'
+datim_ppview <- function() {
+
+  df_ppview <- datim_sqlviews(
+    view_name = "Country, Partner, Agencies",
+    dataset = TRUE)
+
+  df_ppview %>%
+    rename(
+      operatingunit = ou,
+      prime_partner = partner,
+      funding_agencies = agencies
+    )
+}
+
+#' @title Datim OU / Countries view
+#'
+#'
+datim_cntryview <- function() {
+  datim_sqlviews(view_name = "OU countries", dataset = TRUE)
+}
+
+
+#' @title Datim OU / Countries view
+#'
+#'
+datim_orgview <- function(cntry_code = NULL) {
+
+  if (is.null(cntry_code)) {
+    df_cntries <- datim_cntryview()
+
+    df_orgview <- df_cntries %>%
+      pmap_dfr(~datim_sqlviews(
+        view_name = "Data Exchange: Organisation Units",
+        dataset = TRUE,
+        query = list("OU" = ..3)
+      ))
+
+    return(df_orgview)
+  }
+
+  datim_sqlviews(
+    view_name = "Data Exchange: Organisation Units",
+    dataset = TRUE,
+    query = list("OU" = cntry_code)
+  )
+}

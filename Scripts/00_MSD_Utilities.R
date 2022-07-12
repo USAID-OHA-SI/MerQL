@@ -4,397 +4,319 @@
 ##  LICENCE: MIT
 ##  DATE:    2021-10-08
 
-## Libraries ----
+# Libraries ----
 
   library(tidyverse)
   library(gophr)
   library(glamr)
+  library(janitor)
   library(DBI)
+  library(uuid)
 
-## GLOBALS ----
+  source("./Scripts/00_Utilities.R")
+  #source("./Scripts/02_DATIM_Resources.R")
+  #source("./Scripts/02_DATIM_Dimensions.R")
+  #source("./Scripts/02_DATIM_SQLViews.R")
+
+# GLOBALS ----
 
   dir_merdata <- glamr::si_path("path_msd")
   dir_data <- "Data"
   dir_dataout <- "Dataout"
   dir_graphics <- "Graphics"
 
+  #b_url <- "https://datim.org"       # Live data
+  b_url <- "https://final.datim.org" # Frozen data
+
   cntry <- "Nigeria"
 
-# FUNCITONS ----
+  cntry_uid <- get_ouuid(operatingunit = cntry)
 
-  #' @title Datim Resources
+  conn <- db_connection(db_name = pg_database())
+
+# DATA EXTRACTION ----
+
+  # glamr::pano_extract_msds(operatingunit = cntry,
+  #                          archive = TRUE,
+  #                          dest_path = dir_merdata)
+
+# FUNCTIONS ----
+
+  #' @title Pull Data Elements from MSD Dataset
   #'
-  datim_resources <- function(...,
-                              base_url = NULL,
-                              username = NULL,
-                              password = NULL,
-                              res_name = NULL,
-                              dataset = FALSE) {
-    # datim credentials
-    if (missing(username))
-      username <- datim_user()
+  msd_orgs <- function(df_msd, level = NULL) {
 
-    if (missing(password))
-      password <- datim_pwd()
+    df_outable <- glamr::get_outable(
+      username = datim_user(),
+      password = datim_pwd())
 
-    # Base url
-    if (missing(base_url))
-      base_url <- "https://final.datim.org"
+    df_orgs_sites <- df_msd %>%
+      select(any_of(str_msd_sites$org_units)) %>%
+      distinct()
 
-    # URL Query Options
-    options <- "?format=json&paging=false"
+    df_orgs_sites <- df_outable %>%
+      select(!ends_with("lvl")) %>%
+      rename_with(~str_replace(., "_", "")) %>%
+      right_join(df_orgs_sites,
+                 by = c("operatingunituid", "operatingunit", "country"))
 
-    # List of columns
-    cols <- list(...)
-
-    print(paste0(cols))
-
-    # API URL
-    api_url <- base_url %>%
-      paste0("/api/resources", options)
-
-    # Query data
-    data <- api_url %>%
-      datim_execute_query(username, password, flatten = TRUE) %>%
-      purrr::pluck("resources") %>%
-      tibble::as_tibble() %>%
-      rename(name = displayName)
-
-    # Filter if needed
-    if (!base::is.null(res_name)) {
-      data <- data %>%
-        filter(name == res_name)
-    }
-
-    # Return only the url when results is just 1 row
-    if(base::nrow(data) == 1 && dataset == FALSE) {
-      return(data$href)
-
-    } else if (base::nrow(data) == 1 && dataset == TRUE) {
-
-      dta_url <- data$href
-      print(dta_url)
-
-      end_point <- dta_url %>%
-        str_split("\\/") %>%
-        unlist() %>%
-        last()
-
-      #print(end_point)
-
-      dta_url <- dta_url %>% paste0(options)
-
-      print(length(cols))
-
-      if (length(cols) > 0) {
-        dta_url <- dta_url %>%
-          paste0("&fields=", paste0(cols, collapse = ","))
-      } else {
-        dta_url <- dta_url %>%
-          paste0("&fields=:nameable")
-      }
-
-      print(dta_url)
-
-      data <- dta_url %>%
-        datim_execute_query(username, password, flatten = TRUE) %>%
-        purrr::pluck(end_point) %>%
-        tibble::as_tibble()
-    }
-
-    return(data)
+    return(df_orgs_sites)
   }
 
-  datim_resources()
-
-  datim_resources(res_name = "Data Elements")
-  datim_resources(res_name = "Data Elements", dataset = TRUE)
-  datim_resources(res_name = "Category Option Combos", dataset = TRUE)
-
-  # datim_resources("id", "code", "name", "code", "shortName",
-  #                 "shortDisplayName", "description",
-  #                 "categoryoptioncombocode",
-  #                 res_name = "Data Elements", dataset = T)
-  #
-  # datim_resources(res_name = "Data Elements", dataset = TRUE)
-  #
-  # datim_resources(res_name = "Data Sets", dataset = TRUE)
-  #
-  # datim_resources(res_name = "Category Option Combos", dataset = TRUE)
-  #
-  # datim_resources(res_name = "dataValueSets", dataset = TRUE)
-
-  # MER Data Sets - Results
-  mer_results <- c(
-    "MER Results: Facility Based",
-    "MER Results: Community Based",
-    "MER Results: Medical Store",
-    "MER Results: Community Based - DoD ONLY",
-    "MER Results: Facility Based - DoD ONLY",
-    "Host Country Results: Facility (USG)"
-  )
-
-  # MER Data Sets - Targets
-  mer_targets <- c(
-    "Host Country Targets: COP Prioritization SNU (USG)",
-    "MER Target Setting: PSNU (Facility and Community Combined)",
-    "MER Target Setting: PSNU (Facility and Community Combined) - DoD ONLY"
-  )
-
-  datim_resources(res_name = "Data Sets", dataset = TRUE) %>%
-    filter(name %in% mer_results) %>%
-    pull(href) %>%
-    #pull(id) %>%
-    map_dfr(function(.x){
-      data <- .x %>%
-        paste0("/?data.json&paging=false") %>%
-        datim_execute_query(flatten = TRUE) %>%
-        purrr::pluck("dataElements") %>%
-        tibble::as_tibble()
-    })
-
-  #' @title Datim SQLViews
+  #' @title Clean Mechanisms / TBD
   #'
-  datim_sqlviews <- function(base_url = NULL,
-                             username = NULL,
-                             password = NULL,
-                             view_name = NULL,
-                             dataset = FALSE,
-                             query = NULL) {
-
-    # datim credentials
-    if (missing(username))
-      username <- glamr::datim_user()
-
-    if (missing(password))
-      password <- glamr::datim_pwd()
-
-    # Base url
-    if (missing(base_url))
-      base_url <- "https://final.datim.org"
-
-    end_point <- "/api/sqlViews/"
-
-    options <- "?format=json&paging=false"
-
-    # API URL
-    api_url <- base_url %>% paste0(end_point, options)
-
-    #print(api_url)
-
-    # Query data
-    data <- api_url %>%
-      glamr::datim_execute_query(username, password, flatten = TRUE) %>%
-      purrr::pluck("sqlViews") %>%
-      tibble::as_tibble() %>%
-      dplyr::rename(uid = id, name = displayName)
-
-    # Filter if needed
-    if (!base::is.null(view_name)) {
-
-      print(glue::glue("Searching for SQL View: {view_name} ..."))
-
-      data <- data %>%
-        dplyr::filter(str_detect(
-          stringr::str_to_lower(name),
-          base::paste0("^", str_to_lower(view_name))))
-    }
-
-    # Return only ID when results is just 1 row
-    if(base::nrow(data) == 0) {
-      base::warning("No match for the requested SQL View")
-      return(NULL)
-    }
-    else if (base::nrow(data) == 1 && dataset == FALSE) {
-      return(data$uid)
-    }
-    else if (base::nrow(data) > 1 && dataset == TRUE) {
-      base::warning("There are more than 1 match for the requested SQL View data. Please try to be specific.")
-      return(data)
-    }
-    else if(base::nrow(data) == 1 && dataset == TRUE) {
-
-      dta_uid <- data$uid
-
-      dta_url <- base_url %>%
-        paste0(end_point, dta_uid, "/data", options, "&fields=*") #:identifiable, :nameable
-
-      # apply query whenever needed
-      if (!is.null(query)) {
-        q <- names(query) %>%
-          map_chr(~paste0("var=", .x, ":", query[.x])) %>%
-          paste0("&", .)
-
-        api_url <- api_url %>% paste0(q)
-      }
-
-      print(glue::glue("SQL View url: {dta_url}"))
-
-      # Query data
-      data <- dta_url %>%
-        datim_execute_query(username, password, flatten = TRUE)
-
-      if (data$status & data$status == "ERROR") {
-        print(glue::glue("Error: {data$message}"))
-        return(NULL)
-      }
-
-      # Headers
-      headers <- data %>%
-        purrr::pluck("listGrid") %>%
-        purrr::pluck("headers") %>%
-        dplyr::pull(column)
-
-      # Data
-      data <- data %>%
-        purrr::pluck("listGrid") %>%
-        purrr::pluck("rows") %>%
-        tibble::as_tibble(.name_repair = "unique") %>%
-        janitor::clean_names() %>%
-        magrittr::set_colnames(headers)
-    }
-
-    return(data)
+  msd_clean_mechs <- function(df_mechs) {
+    df_mechs %>%
+      mutate(
+        award_number = case_when(
+          str_detect(mech_name, "Placeholder") ~ paste0("TBD - ", mech_code, " ", operatingunit, " ", funding_agency),
+          TRUE ~ award_number
+        ),
+        prime_partner_name = case_when(
+          str_detect(mech_name, "Placeholder") ~ paste0("TBD - ", mech_code, " ", operatingunit, " ", funding_agency),
+          TRUE ~ prime_partner_name
+        ),
+        prime_partner_duns = case_when(
+          str_detect(mech_name, "Placeholder") ~ paste0("TBD - ", mech_code, " ", operatingunit, " ", funding_agency),
+          TRUE ~ prime_partner_duns
+        ),
+        prime_partner_uei = case_when(
+          str_detect(mech_name, "Placeholder") ~ paste0("TBD - ", mech_code, " ", operatingunit, " ", funding_agency),
+          TRUE ~ prime_partner_uei
+        ),
+        mech_name = case_when(
+          str_detect(mech_name, "Placeholder") ~ paste0("TBD - ", mech_code, " ", operatingunit, " ", funding_agency),
+          TRUE ~ mech_name
+        )
+      )
   }
 
-  datim_sqlviews()
-  datim_sqlviews(view_name = "Country, Partner, Agencies")
-  datim_sqlviews(view_name = "Country, Partner, Agencies", dataset = TRUE)
-  datim_sqlviews(view_name = "OU countries", dataset = TRUE)
+  #' @title Pull Data Elements from MSD Dataset
+  #'
+  msd_dataelements <- function(df_msd) {
 
-  datim_sqlviews(view_name = "MER Data Elements", dataset = TRUE)
-  datim_sqlviews(view_name = "MER category option combos", dataset = TRUE)
+    # DataElement Variables
+    cols_elmts <- c(
+      "indicator",
+      "numeratordenom",
+      "indicatortype",
+      "disaggregate",
+      "standardizeddisaggregate")
 
-  # DATIM Data Exchange
-  #
-  # Org unit - Facility / Site / Community / PSNU / SNU / Country / OU
-  # Query var=OU:uid
-  datim_sqlviews(view_name = "Data Exchange: Organisation Units", dataset = TRUE)
-  # Mechanisms - COC = Category Option Combo, AOC = Attribute Option Combo
-  datim_sqlviews(view_name = "Mechanisms partners agencies OUS Start End", dataset = TRUE)
-  # Data Elements
-  # Query var=dataSets:uids
-  datim_sqlviews(view_name = "Data sets, elements and combos paramaterized", dataset = TRUE)
-  datim_sqlviews(view_name = "Data sets, elements and combos paramaterized section forms", dataset = TRUE)
-  # Periods - Days (yyyyMMdd), Quarters (yyyyQn), Financial Year (yyyyOct)
-  datim_sqlviews(view_name = "Period information", dataset = TRUE)
+    df_msd %>%
+      select(all_of(cols_elmts)) %>%
+      distinct() %>%
+      rowwise() %>%
+      mutate(
+        dataelement = msd_build_elements(
+          ind = indicator,
+          ndenom = numeratordenom,
+          itype = indicatortype,
+          disagg = disaggregate)) %>%
+      ungroup() %>%
+      relocate(dataelement, .before = standardizeddisaggregate)
+  }
+
+  #' @title Build DataElements
+  #'
+  msd_build_elements <- function(ind, ndenom, itype, disagg) {
+
+    dataelement <- base::paste(
+      purrr::discard(c(ndenom,
+                       ifelse(itype == "Not Applicable", "NA", itype),
+                       ifelse(str_detect(disagg, "^Total.*"), NA_character_, disagg)),
+                     is.na),
+      collapse = ", "
+    )
+
+    base::paste0(ind, " (", dataelement, ")")
+  }
 
   #' @title Data Elements
   #'
-  datim_data_elements <- function(username = NULL,
-                                  password = NULL,
-                                  base_url = NULL) {
+  msd_dataelements2 <- function(df_msd, replace = F) {
 
-    # datim credentials
-    if (missing(username))
-      username <- datim_user()
+    cols <- c("indicator", "numeratordenom", "indicatortype", "disaggregate")
 
-    if (missing(password))
-      password <- datim_pwd()
+    if (!all(cols %in% base::names(df_msd)))
+      usethis::ui_stop(glue::glue("Some of the required columns are missing: {paste(cols, collapse = ', ')}"))
 
-    # Base url
-    if (missing(base_url))
-      base_url <- "https://final.datim.org"
+    df <- df_msd %>%
+      mutate(
+        indicatortype = case_when(
+          indicatortype == "Not Applicable", "NA",
+          TRUE ~ indicatortype
+        ),
+        disaggregate = case_when(
+          str_detect(disaggregate, "^Total.*") ~ NA_character_,
+          TRUE ~ disaggregate
+        ),
+        dataelement = paste(
+          purrr::discard(c(numeratordenom, indicatortype, disaggregate), is.na),
+          collapse = ", "),
+        dataelement = paste0(indicator, " (", element, ")")
+      ) %>%
+      relocate(element, .after = disaggregate)
 
-    # API URL
-    api_url <- base_url %>%
-      paste0("/api/dataElements?format=json&paging=false&fields=:nameable")#:identifiable
+    if (replace) {
+      df <- df %>% dplyr::select(!all_of(cols))
+    }
 
-    data <- api_url %>%
-      datim_execute_query(username, password, flatten = TRUE) %>%
-      purrr::pluck("dataElements") %>%
-      tibble::as_tibble()
-
-    print(data)
+    return(df)
   }
 
-  datim_data_elements()
+  #' @title Get Fact Table
+  #'
+  msd_fact <- function(df_msd, df_elmts = NULL) {
 
-  # Data Elements
-  datim_mecanisms <- function() {}
+    # Fact Table Variables
+    cols_fact <- c(
+      "fiscal_year",  # => Used to reshape reshape / pivot
+      "orgunituid",   # => Join to Org Hierarchy
+      "mech_code",    # => Join to Attributes Option Combos - Awards & Partners
+      "indicator",      # DataElement key
+      "numeratordenom", # DataElement key
+      "indicatortype",  # DataElement key
+      "disaggregate",   # DataElement key
+      "standardizeddisaggregate",
+      "categoryoptioncomboname",
+      "targets",
+      "qtr1",
+      "qtr2",
+      "qtr3",
+      "qtr4",
+      "cumulative"
+    )
 
-  # Validate Site Level Data
+    if (!all(cols_fact %in% names(df_msd)))
+      usethis::ui_stop(glue::glue("ERROR - MSD Table is missing required columns: {paste(cols_fact, collapse=', ')}"))
 
+    # DataElement Variables
+    cols_disaggs1 <- c("indicator", "numeratordenom",
+                       "indicatortype", "disaggregate")
 
-## DATA ----
+    cols_disaggs2 <- c(cols_disaggs1, "standardizeddisaggregate")
 
-  # MSD - Site x IM
+    cols_elmts <- c(cols_disaggs2, "dataelement")
 
+    if (base::is.null(df_elmts))
+      df_elmts <- msd_elements(df_msd)
+
+    if (!is.null(df_elmts) & !all(cols_elmts %in% names(df_elmts)))
+      usethis::ui_stop(glue::glue("ERROR - Reference Table is missing required columns: {paste(cols_elmts, collapse=', ')}"))
+
+    # Distinct DataElements
+    df_elements <- df_elmts %>%
+      select(all_of(cols_elmts)) %>%
+      distinct()
+
+    # Drop Reference Columns
+    df_fact <- df_msd %>%
+      select(all_of(cols_fact)) %>%
+      left_join(df_elements, by = cols_disaggs2) %>%
+      select(!all_of(cols_disaggs1)) %>%
+      relocate(dataelement, .before = standardizeddisaggregate)
+
+    return(df_fact)
+  }
+
+  #' @title Reshape MSD Fact Table
+  #'
+  msd_reshape_fact <- function(df_msd) {
+    df_msd %>%
+      pivot_longer(cols = c(starts_with("qtr"), "cumulative", "targets"),
+                   names_to = "value_type",
+                   values_to = "value",
+                   values_drop_na = T) %>%
+      mutate(
+        period = case_when(
+          str_detect(value_type, "^qtr") ~ paste0("Q", str_sub(value_type, -1)),
+          TRUE ~ ""
+        ),
+        period = paste0("FY", str_sub(fiscal_year, 3,4), period),
+        period_type = case_when(
+          str_detect(period, "Q\\d{1}$") ~ "Quarter",
+          TRUE ~ "Fiscal Year"
+        ),
+        value_type = case_when(
+          value_type != "targets" ~ "results",
+          TRUE ~ value_type
+        )
+      ) %>%
+      relocate(period, period_type, .after = fiscal_year)
+  }
+
+  #' @title Unpack MSD Dataset
+  #'
+  msd_split <- function(df_msd, reshape = T) {
+
+    df <- list()
+
+    df$orgs <- msd_orgs(df_msd)
+
+    df$de <- msd_dataelements(df_msd)
+
+    df$mechs <- msd_mechs(df_msd)
+
+    df$partners <- msd_partners(df_msd)
+
+    df$fact <- msd_fact(df_msd, df_elmts = df$de)
+
+    if (reshape) {
+      df$fact <- df$fact %>% msd_reshape_fact()
+    }
+
+    return(df)
+  }
+
+# DATA ----
+
+## Reference Data sets ----
+
+  # Metadata - OU Org Hierarchy with UIDs
+  df_outable <- glamr::get_outable(username = datim_user(), password = datim_pwd())
+
+  # Metadata - OU Org Hierarchy with UIDs
+  df_orglevels <- glamr::get_levels(username = datim_user(), password = datim_pwd())
+
+  # Metadata - Data Elements
+  #df_dt_elts <- datim_resources(res_name = "Data Elements", dataset = T)
+  df_dt_elts <- datim_dataements()
+
+  # MSD - Site x IM ---
   df_sites <- glamr::return_latest(
       folderpath = glamr::si_path(),
-      pattern = "Site_IM_.*_Nigeria"
+      pattern = "Site_IM_FY20.*_Nigeria"
     ) %>%
     gophr::read_msd()
 
+  # Clean Data Elements
   df_sites <- df_sites %>%
-    filter(fundingagency != "Dedup") %>%
-    clean_agency() %>%
-    clean_indicator()
+    mutate(
+      source_name = case_when(
+        indicator == "OVC_HIVSTAT" &
+          standardizeddisaggregate == "Total Numerator" &
+          source_name != "Derived" ~ "Derived",
+        TRUE ~ source_name
+      ),
+      modality = case_when(
+        indicator == "HTS_RECENT" &
+          standardizeddisaggregate == "Total Numerator" &
+          !is.na(modality) ~ NA_character_,
+        TRUE ~ modality
+      ),
+      statushiv = case_when(
+        indicator %in% c("OVC_HIVSTAT", "TB_STAT_POS") &
+          standardizeddisaggregate == "Total Numerator" &
+          !is.na(statushiv) ~ NA_character_,
+        indicator == "TX_PVLS" &
+          standardizeddisaggregate == "Total Denominator" &
+          !is.na(statushiv) ~ NA_character_,
+        TRUE ~ statushiv
+      )
+    )
 
-  df_sites %>% glimpse()
-
-  df_sites %>% names()
-
-# COLUMNS ----
-
-  # "orgunituid"                 # ID
-  # "sitename"
-  # "operatingunit"
-  # "operatingunituid"
-  # "countryname"
-  # "snu1"
-  # "snu1uid"
-  # "psnu"
-  # "psnuuid"
-  # "snuprioritization"
-  # "typemilitary"
-  # "dreams"
-  #
-  # "primepartner"
-  # "fundingagency"
-  # "mech_code"                  # ID
-  # "mech_name"
-  # "pre_rgnlztn_hq_mech_code"
-  # "prime_partner_duns"
-  # "award_number"
-  #
-  # "communityuid"
-  # "community"
-  # "communityprioritization"
-  # "facilityuid"
-  # "facility"
-  # "facilityprioritization"
-  # "sitetype"
-  #
-  # "indicator"
-  # "numeratordenom"
-  # "indicatortype"
-  # "disaggregate"
-  # "standardizeddisaggregate"
-  # "categoryoptioncomboname"    # ID
-  # "ageasentered"
-  # "trendsfine"
-  # "trendssemifine"
-  # "trendscoarse"
-  # "sex"
-  # "statushiv"
-  # "statustb"
-  # "statuscx"
-  # "hiv_treatment_status"
-  # "otherdisaggregate"
-  # "otherdisaggregate_sub"
-  # "modality"
-  #
-  # "fiscal_year"
-  # "targets"
-  # "qtr1"
-  # "qtr2"
-  # "qtr3"
-  # "qtr4"
-  # "cumulative"
-  # "source_name"
-
-# DATIM Data Structure ----
+## DATIM Data Schema ----
 
   # DIMENSIONS
   #
@@ -403,7 +325,7 @@
   # Eg: Clinical Facility, Community Site, or OU Level
   #
   # WHAT
-  # Data Elements (Indicators) + Disaggregations [Targets and Results and DSD and TA]
+  # Data Elements: Indicators (N|D, DSD|TA|etc, Disaggregate)
   # Eg: Number of HTC tests for Females 1-4
   #
   # WHEN
@@ -416,8 +338,76 @@
   #
   # VALUE (MEASUREMENT)
   # Value (Targets, Qtr1-4, Cumulative)
+## COLUMN Data Types ----
 
-# SITE x IM Structure ----
+  cols_msd_sites <- c(
+    "period"                 = "varchar(6)",    # ID
+    "period_type"            = "varchar(11)",   # ID
+    "orgunituid"             = "varchar(11)",   # ID
+    "sitename"               = "varchar(200)",
+    "facilityuid"            = "varchar(11)",
+    "facility"               = "varchar(200)",
+    "sitetype"               = "varchar(20)", #9
+    "communityuid"           = "varchar(11)",
+    "community"              = "varchar(200)",
+    "psnuuid"                = "varchar(11)",
+    "psnu"                   = "varchar(200)",
+    "snuprioritization"      = "varchar(50)",
+    "snu1uid"                = "varchar(11)",
+    "snu1"                   = "varchar(50)",
+    "typemilitary"           = "char(1)",
+    "dreams"                 = "char(1)",
+    "operatingunit"          = "varchar(32)",
+    "operatingunituid"       = "varchar(11)",
+    "operatingunitiso"       = "char(3)",
+    "country"                = "varchar(50)",
+    "countryuid"             = "varchar(11)",
+    "countryiso"             = "char(3)",
+
+    "mech_code"              = "varchar(50)",              # ID
+    "mech_name"              = "varchar(200)",
+    "award_number"           = "varchar(250)",
+    "prime_partner_name"     = "varchar(200)",
+    "prime_partner_duns"     = "varchar(100)", #30
+    "prime_partner_uei"      = "varchar(100)", #30
+    "funding_agency"         = "varchar(100)", #30
+
+    "indicator"              = "varchar(50)",                # ID
+    "numeratordenom"         = "char(1)",
+    "indicatortype"          = "varchar(20)", #4
+    "disaggregate"           = "varchar(100)", #30
+    "standardizeddisaggregate" = "varchar(100)", #30
+    "dataelementuid"           = "varchar(11)",                # ID
+    "dataelement"              = "varchar(100)",
+    "categoryoptioncombouid"   = "varchar(11)",   # ID (Second)
+    "categoryoptioncomboname"  = "varchar(500)",   # ID (Second)
+    "ageasentered"             = "varchar(25)",
+    "age_2018"                 = "varchar(25)",
+    "age_2019"                 = "varchar(25)",
+    "trendscoarse"             = "varchar(25)",
+    "sex"                      = "varchar(11)", #6
+    "statushiv"                = "varchar(25)",
+    "statustb"                 = "varchar(25)",
+    "statuscx"                 = "varchar(25)",
+    "hiv_treatment_status"     = "varchar(25)",
+    "otherdisaggregate"        = "varchar(500)",
+    "otherdisaggregate_sub"    = "varchar(500)",
+    "modality"                 = "varchar(60)",
+
+    "fiscal_year"              = "char(4)",             # ID - Reshape long and use period as ID
+    "targets"                  = "decimal(36,2)",
+    "qtr1"                     = "decimal(36,2)",
+    "qtr2"                     = "decimal(36,2)",
+    "qtr3"                     = "decimal(36,2)",
+    "qtr4"                     = "decimal(36,2)",
+    "cumulative"               = "decimal(36,2)",
+    "source_name"              = "varchar(60)",
+    "value_type"               = "varchar(7)",
+    "value"                    = "decimal(36,2)"
+  )
+
+
+## SITE x IM Data Structure ----
 
   str_msd_sites <- list(
     # WHEN
@@ -425,43 +415,77 @@
       "fiscal_year"
     ),
     # WHERE
-    "orgunits" = c(
+    "org_units" = c(
       "orgunituid",                 # ID
       "sitename",
-      "operatingunit",
-      "operatingunituid",
-      "countryname",
-      "snu1",
-      "snu1uid",
-      "psnu",
+      "facilityuid",
+      "facility",
+      "sitetype",
+      "communityuid",
+      "community",
       "psnuuid",
+      "psnu",
       "snuprioritization",
       "typemilitary",
       "dreams",
-      "communityuid",
-      "community",
-      "communityprioritization",
+      "snu1",
+      "snu1uid",
+      "countryuid",
+      "country",
+      "operatingunituid",
+      "operatingunit"
+    ),
+    "org_sites" = c(
+      "orgunituid",                 # ID
+      "sitename",
       "facilityuid",
       "facility",
-      "facilityprioritization",
-      "sitetype"
+      "sitetype",
+      "typemilitary",
+      "communityuid",
+      "snu1uid",
+      "psnuuid",
+      "countryuid",
+      "operatingunituid"
+    ),
+    "org_comms" = c(
+      "communityuid",
+      "community",
+      "psnuuid"
+    ),
+    "org_psnus" = c(
+      "psnuuid",
+      "psnu",
+      "snuprioritization",
+      "dreams",
+      "snu1uid"
+    ),
+    "org_snu1s" = c(
+      "snu1uid",
+      "snu1",
+      "countryuid"
+    ),
+    "org_countries" = c(
+      "countryuid",
+      "countryiso",
+      "country",
+      "operatingunituid"
+    ),
+    "org_ous" = c(
+      "operatingunituid",
+      "operatingunitiso",
+      "operatingunit"
     ),
     # WHAT: dataElements
-    "indicators" = c(
+    "dataelements" = c(
       "indicator",                  # ID
       "numeratordenom",             # ID
       "indicatortype",              # ID
-      "source_name"
-    ),
-    # WHAT: CategoryOptionsCombo
-    "disaggregates" = c(
       "disaggregate",               # ID
-      "standardizeddisaggregate",   # ID
+      "standardizeddisaggregate",
+      "dataelement",                # Derived
       "categoryoptioncomboname",    # ID
       "ageasentered",
-      "trendsfine",
-      "trendssemifine",
-      "trendscoarse",
       "sex",
       "statushiv",
       "statustb",
@@ -469,17 +493,79 @@
       "hiv_treatment_status",
       "otherdisaggregate",
       "otherdisaggregate_sub",
-      "modality"
+      "modality",
+      "source_name"
+    ),
+    "indicators" = c(
+      "indicator",
+      "numeratordenom",
+      "indicatortype",
+      "disaggregate",
+      "dataelement",                # ID
+      "standardizeddisaggregate",   # ID
+      "modality",
+      "source_name"
+    ),
+    # WHAT: CategoryOptionCombos
+    "disaggregates" = c(
+      "indicator",
+      "numeratordenom",
+      "indicatortype",
+      "disaggregate",
+      "disaggregate",               # ID
+      "standardizeddisaggregate",   # ID
+      "otherdisaggregate",
+      "otherdisaggregate_sub",
+      "modality",
+      "source_name"
+    ),
+    # AGES
+    "age_disaggregates" = c(
+      "fiscal_year",
+      "indicator",
+      "ageasentered",
+      "age_2018",
+      "age_2019",
+      "trendscoarse"
+    ),
+    "categoryoptioncombos" = c(
+      "indicator",
+      "numeratordenom",
+      "indicatortype",
+      "categoryoptioncomboname",    # ID
+      "ageasentered",
+      "sex",
+      "statushiv",
+      "statustb",
+      "statuscx",
+      "hiv_treatment_status",
+      "otherdisaggregate",
+      "otherdisaggregate_sub",
+      "source_name"
     ),
     # WHO: Mechs - AttributesOptionsCombo
     "mechanisms" = c(
-      "fundingagency",
-      "award_number",
       "mech_code",                  # ID
       "mech_name",
-      "pre_rgnlztn_hq_mech_code",
-      "primepartner",
-      "prime_partner_duns"
+      "award_number",
+      "prime_partner_name",
+      "prime_partner_duns",
+      "prime_partner_uei",
+      "funding_agency",
+      "operatingunit"
+    ),
+    "mech_partners" = c(
+      "prime_partner_uei",          # ID
+      "prime_partner_duns",         # ID
+      "prime_partner_name"
+    ),
+    "mech_awards" = c(
+      "mech_code",                  # ID
+      "mech_name",
+      "award_number",               # ID
+      "prime_partner_uei",
+      "operatingunit",
+      "funding_agency"
     ),
     # VALUE
     "values" = c(
@@ -499,7 +585,10 @@
       "orgunituid",   # => Join to Org Hierarchy
       "mech_code",    # => Join to AttributesOptionsCombo tbl
       "indicator",
-      "disaggregate",
+      "numeratordenom", # DataElement key
+      "indicatortype",  # DataElement key
+      "disaggregate",   # DataElement key
+      "dataelement",
       "standardizeddisaggregate",
       "categoryoptioncomboname",
       "targets",
@@ -509,136 +598,411 @@
       "qtr4",
       "cumulative"
     ),
+    "data_long" = c(
+      "period",       # => Used to reshape reshape / pivot
+      "orgunituid",   # => Join to Org Hierarchy
+      "mech_code",    # => Join to AttributesOptionsCombo tbl
+      "dataelement",
+      "standardizeddisaggregate",
+      "categoryoptioncomboname",
+      "value_type",
+      "value"
+    ),
     # Columns for cleaned version
     "cleaned" = c()
   )
 
+# Flatfile => db_output.csv or txt, json, data long
+# SQL View => hyperfile, data long
+# SQL View => hyperfile + geospatial (site + psnu + OU/country)
 
-# NORMALISE
+## NORMALISE ----
 
-  # df_sites %>%
-  #   filter(fundingagency != "Dedup") %>%
-  #   select(indicator, numeratordenom) %>%
-  #   distinct() %>%
-  #   count(indicator)
-  #
-  # df_sites %>%
-  #   filter(fundingagency != "Dedup") %>%
-  #   select(indicator, indicatortype) %>%
-  #   distinct() %>%
-  #   count(indicator)
-  #
-  # df_sites %>%
-  #   filter(fundingagency != "Dedup") %>%
-  #   select(indicator, indicatortype, numeratordenom) %>%
-  #   distinct() %>%
-  #   pivot_wider(names_from = numeratordenom, values_from = indicatortype)
+  # Org Hierarchy ----
 
-  # Orgs
-  df_orgs <- df_sites %>%
-    filter(sitetype != "Above Site") %>%
-    select(all_of(str_msd_sites$orgunits)) %>%
+  # Table Names
+  tbl_orgs <- "msd_orgunits"
+
+  tbl_org_sites <- "msd_org_sites"
+  tbl_org_comms <- "msd_org_communities"
+  tbl_org_psnus <- "msd_org_psnus"
+  tbl_org_snu1s <- "msd_org_snu1s"
+  tbl_org_cntries <- "msd_org_countries"
+  tbl_org_ous <- "msd_org_ous"
+  tbl_org_levels <- "msd_org_levels"
+
+  df_orgs_sites <- df_sites %>%
+    select(any_of(str_msd_sites$org_units)) %>%
     distinct()
 
-  dbCreateTable(conn, "orgs_hierarchy", df_orgs)
+  df_orgs_sites <- df_outable %>%
+    select(!ends_with("lvl")) %>%
+    rename_with(~str_replace(., "_", "")) %>%
+    right_join(df_orgs_sites,
+               by = c("operatingunituid", "operatingunit", "country")) %>%
+    relocate(starts_with("country"), starts_with("operatingunit"),
+             .after = last_col())
 
-  # Mechs
+  df_orgs_sites %>% glimpse()
+
+  nrow(df_orgs_sites) == nrow(distinct(df_orgs_sites, orgunituid))
+
+  # All org units
+  df_orgs_sites %>%
+    db_create_table(tbl_orgs, ., conn,
+                    meta = cols_msd_sites,
+                    pkeys = "orgunituid",
+                    overwrite = T)
+
+  # All sites
+  df_orgs_sites %>%
+    select(all_of(str_msd_sites$org_sites)) %>%
+    distinct() %>%
+    db_create_table(tbl_org_sites, ., conn,
+                    meta = cols_msd_sites,
+                    pkeys = "orgunituid",
+                    overwrite = T)
+
+  # All Communities
+  df_orgs_sites %>%
+    filter(community != "Data reported above Community Level") %>%
+    select(all_of(str_msd_sites$org_comms)) %>%
+    distinct() %>%
+    db_create_table(tbl_org_comms, ., conn,
+                    meta = cols_msd_sites,
+                    pkeys = "communityuid",
+                    overwrite = T)
+
+  # All PSNUs
+  df_orgs_sites %>%
+    select(all_of(str_msd_sites$org_psnus)) %>%
+    distinct() %>%
+    db_create_table(tbl_org_comms, ., conn,
+                    meta = cols_msd_sites,
+                    pkeys = "psnuuid",
+                    overwrite = T)
+
+  # All SNU1s
+  df_orgs_sites %>%
+    select(all_of(str_msd_sites$org_snu1s)) %>%
+    distinct() %>%
+    db_create_table(tbl_org_snu1s, ., conn,
+                    meta = cols_msd_sites,
+                    pkeys = "snu1uid",
+                    overwrite = T)
+
+  # All Countries
+  df_outable %>%
+    rename_with(~str_replace(., "_", "")) %>%
+    select(all_of(str_msd_sites$org_countries)) %>%
+    distinct() %>%
+    db_create_table(tbl_org_cntries, ., conn,
+                    meta = cols_msd_sites,
+                    pkeys = "countryuid",
+                    overwrite = T)
+
+  # All OUs
+  df_outable %>%
+    rename_with(~str_replace(., "_", "")) %>%
+    select(all_of(str_msd_sites$org_ous)) %>%
+    distinct() %>%
+    db_create_table(tbl_org_ous, ., conn,
+                    pkeys = "operatingunituid",
+                    overwrite = T)
+
+  # All OU Levels
+  df_outable %>%
+    select(ends_with(c("uid", "lvl"))) %>%
+    rename_with(~str_replace(., "_", "")) %>%
+    pivot_longer(cols = ends_with("lvl"),
+                 names_to = "label",
+                 values_to = "level") %>%
+    mutate(label = str_remove(label, "lvl$")) %>%
+    db_create_table(tbl_org_levels, ., conn,
+                    meta = cols_msd_sites,
+                    pkeys = c("operatingunituid", "countryuid", "label", "level"),
+                    overwrite = T)
+
+  remove(df_orgs_sites)
+
+
+  # Mechanisms ----
+
+  # Table Names
+  tbl_mechanisms <- "msd_mechanisms"
+  tbl_mechs_awards <- "msd_mech_awards"
+  tbl_mechs_partners <- "msd_mech_partners"
+
   df_mechs <- df_sites %>%
-    select(one_of(c(str_msd_sites$periods, str_msd_sites$mechanisms))) %>%
-    distinct()
+    select(one_of(str_msd_sites$mechanisms)) %>%
+    distinct() %>%
+    msd_clean_mechs()
 
-  dbCreateTable(conn, "mechanisms", df_mechs)
+  df_mechs %>% glimpse()
+
+  nrow(df_mechs) == nrow(distinct(df_mechs, mech_code))
+
+  # All Mechs
+  df_mechs %>%
+    db_create_table(tbl_mechanisms, ., conn,
+                    meta = cols_msd_sites,
+                    pkeys = "mech_code",
+                    overwrite = T)
+
+  # All Partners
+  df_mechs %>%
+    select(any_of(str_msd_sites$mech_partners)) %>%
+    distinct() %>%
+    db_create_table(tbl_mechs_partners, ., conn,
+                    meta = cols_msd_sites,
+                    pkeys = "prime_partner_uei",
+                    overwrite = T)
+
+  # All Mechs/Awards
+  df_mechs %>%
+    select(any_of(str_msd_sites$mech_awards)) %>%
+    distinct() %>%
+    db_create_table(tbl_mechs_awards, ., conn,
+                    meta = cols_msd_sites,
+                    pkeys = "mech_code",
+                    overwrite = T)
+
+  remove(df_mechs)
+
+
+  # Data Elements, Indicators & Disaggs ----
+  tbl_elements <- "msd_dataelements"
+  tbl_inds <- "msd_indicators"
+  tbl_disaggs <- "msd_disaggregates"
+  tbl_coc <- "msd_categoryoptioncombos"
+  tbl_ages <- "msd_age_bands"
+
+  # Data Elements
+  df_elmts <- df_sites %>%
+    select(any_of(str_msd_sites$dataelements)) %>%
+    distinct() %>%
+    rowwise() %>%
+    mutate(dataelement = msd_build_elements(
+      indicator, numeratordenom, indicatortype, disaggregate)) %>%
+    ungroup() %>%
+    relocate(dataelement, .before = standardizeddisaggregate)
+
+  df_elmts %>% glimpse()
+
+  df_elmts %>%
+    distinct(dataelement, standardizeddisaggregate, categoryoptioncomboname) %>%
+    nrow() %>%
+    equals(nrow(df_elmts))
+
+  df_elmts %>% find_pkeys()
+  df_elmts %>% find_pkeys(colnames = T)
+
+  df_elmts %>%
+    db_create_table(tbl_elements, ., conn,
+                    meta = cols_msd_sites,
+                    pkeys = c("dataelement",
+                              "standardizeddisaggregate",
+                              "categoryoptioncomboname"),
+                    overwrite = T)
 
   # Indicators
-  df_inds <- df_sites %>%
-    select(one_of(c(str_msd_sites$periods,
-                    str_msd_sites$indicators,
-                    str_msd_sites$disaggregates))) %>%
-    distinct()
+  df_elmts %>%
+    select(one_of(str_msd_sites$indicators)) %>%
+    distinct() %>%
+    add_count(dataelement, standardizeddisaggregate) %>%
+    filter(n > 1)
 
-  dbCreateTable(conn, "indicators", df_inds)
+  df_elmts %>%
+    select(one_of(str_msd_sites$indicators)) %>%
+    distinct() %>% find_pkeys(colnames = T)
 
-  # Data
-  df_msd <- df_sites %>%
-    select(all_of(str_msd_sites$data)) %>%
-    select(-c(targets, cumulative))
+  df_elmts %>%
+    select(one_of(str_msd_sites$indicators)) %>%
+    distinct() %>%
+    db_create_table(tbl_inds, ., conn,
+                    meta = cols_msd_sites,
+                    pkeys = c('dataelement', 'standardizeddisaggregate'),
+                    overwrite = T)
 
-  dbCreateTable(conn, "mer_results", df_msd)
+  # Disaggregates
+  df_elmts %>%
+    select(one_of(str_msd_sites$disaggregates)) %>%
+    distinct() %>%
+    add_count(dataelement, standardizeddisaggregate) %>%
+    filter(n > 1)
 
-  df_msd %>%
-    filter(fiscal_year == 2021,
-           indicator == "HTS_TST") %>%
-    filter(orgunituid == "XM5FIOVzxeq")
+  df_elmts %>%
+    select(one_of(str_msd_sites$disaggregates)) %>%
+    distinct() %>%
+    find_pkeys(colnames = T)
+
+  df_elmts %>%
+    select(one_of(str_msd_sites$disaggregates)) %>%
+    distinct() %>%
+    mutate_all(~case_when(is.na(.) ~ "", TRUE ~ .)) %>%
+    db_create_table(tbl_disaggs, ., conn,
+                    meta = cols_msd_sites,
+                    pkeys = c("indicator", "numeratordenom", "indicatortype",
+                              "disaggregate", "standardizeddisaggregate",
+                              "otherdisaggregate", "otherdisaggregate_sub"),
+                    overwrite = T)
+
+  # age bands
+  df_sites %>%
+    select(one_of(str_msd_sites$age_disaggregates)) %>%
+    distinct() %>%
+    add_count(fiscal_year, indicator, ageasentered) %>%
+    filter(n > 1)
+
+  df_sites %>%
+    select(one_of(str_msd_sites$age_disaggregates)) %>%
+    distinct() %>%
+    find_pkeys(colnames = T)
+
+  df_sites %>%
+    select(one_of(str_msd_sites$age_disaggregates)) %>%
+    distinct() %>%
+    mutate(across(c(starts_with("age"), "trendscoarse"),
+                  ~case_when(is.na(.) ~ "", TRUE ~ .))) %>%
+    arrange(desc(fiscal_year), indicator, ageasentered) %>%
+    db_create_table(tbl_ages, ., conn,
+                    meta = cols_msd_sites,
+                    pkeys = c("fiscal_year", "indicator", "ageasentered"),
+                    overwrite = T)
+
+  # COC
+  df_sites %>%
+    select(one_of(str_msd_sites$categoryoptioncombos)) %>%
+    distinct() %>%
+    find_pkeys(colnames = T)
+
+  df_sites %>%
+    select(one_of(str_msd_sites$categoryoptioncombos)) %>%
+    distinct() %>%
+    mutate_all(~case_when(is.na(.) ~ "", TRUE ~ .)) %>%
+    db_create_table(tbl_coc, ., conn,
+                    meta = cols_msd_sites,
+                    pkeys = names(.),
+                    overwrite = T)
 
 
-  df_msd %>% reshape_msd()
+  # Data -----
 
-  df_msd %>%
-    head() %>%
-    view()
+  # Table Names
+  tbl_sitexim_wide_rsts <- "msd_sitexim_wide_results"
+  tbl_sitexim_wide_trgts <- "msd_sitexim_wide_targets"
+  tbl_sitexim_long <- "msd_sitexim_long"
 
-  df_msd %>%
-    filter(fiscal_year == 2021,
-           indicator %in% c("HTS_TST",
-                            "HTS_TST_POS",
-                            "HTS_TST_NEG")) %>%
-    distinct(standardizeddisaggregate)
+  df_elmts <- df_sites %>% msd_dataelements()
 
-  df_inds %>%
-    filter(indicator == "HTS_TST") %>%
-    distinct(indicator, modality) %>%
-    rename(mod = modality) %>%
-    clean_modalities(colname = "mod")
+  df_elmts %>%
+    group_by_all() %>%
+    count() %>%
+    filter(n > 1)
 
-  df_inds %>%
-    filter(fiscal_year == 2021,
-           indicator %in% c("HTS_TST")) %>%
-    clean_modalities()
+  # Extract Fact table
+  #df_fact <- df_sites %>% msd_fact()
+  df_fact <- df_sites %>%
+    msd_fact(df_msd = ., df_elmts = df_elmts)
 
-  df_msd %>%
-    filter(fiscal_year == 2021,
-     #orgunituid == "XM5FIOVzxeq",
-     indicator %in% c("HTS_TST"),
-     standardizeddisaggregate == "Modality/Age/Sex/Result") %>%
-    facility_type()
+  df_fact %>% glimpse()
 
-  df_hts_tn <- df_msd %>%
-    filter(fiscal_year == 2021,
-           orgunituid == "XM5FIOVzxeq",
-           indicator %in% c("HTS_TST", "HTS_TST_POS", "HTS_TST_NEG"),
-           standardizeddisaggregate == "Total Numerator")
+  #df_fact %>% find_pkeys(colnames = T)
+
+  # df_fact %>%
+  #   filter(is.na(targets)) %>%
+  #   find_pkeys(colnames = T)
+  #
+  # df_fact %>%
+  #   filter(!is.na(targets)) %>%
+  #   find_pkeys(colnames = T)
+
+  # Results
+  df_fact %>%
+    filter(is.na(targets)) %>%
+    db_create_table(tbl_sitexim_wide_rsts, ., conn,
+                    meta = cols_msd_sites,
+                    pkeys = c("fiscal_year", "orgunituid", "mech_code",
+                              "dataelement", "standardizeddisaggregate",
+                              "categoryoptioncomboname"),
+                    overwrite = T)
+
+  # Targets
+  df_fact %>%
+    filter(!is.na(targets)) %>%
+    db_create_table(tbl_sitexim_wide_trgts, ., conn,
+                    meta = cols_msd_sites,
+                    pkeys = c("fiscal_year", "orgunituid", "mech_code",
+                              "dataelement", "standardizeddisaggregate",
+                              "categoryoptioncomboname"),
+                    overwrite = T)
+
+  # Results and Targets
+  df_fact %>%
+    mutate(across(.cols = where(is_character), ~case_when(is.na(.) ~ "", TRUE ~ .))) %>%
+    mutate(across(targets, ~ case_when(is.na(.) ~ 0, TRUE ~ .))) %>%
+    db_create_table(tbl_sitexim_wide, ., conn,
+                    meta = cols_msd_sites,
+                    pkeys = c("fiscal_year", "orgunituid", "mech_code",
+                              "dataelement", "standardizeddisaggregate",
+                              "categoryoptioncomboname", "targets"),
+                    overwrite = T)
 
 
-  df_hts_td <- df_msd %>%
-    filter(fiscal_year == 2021,
-           orgunituid == "XM5FIOVzxeq",
-           indicator %in% c("HTS_TST", "HTS_TST_POS", "HTS_TST_NEG"),
-           standardizeddisaggregate == "Modality/Age/Sex/Result") %>%
-    group_by(orgunituid, indicator) %>%
-    summarise(across(targets:cumulative, sum, na.rm = T), .groups = "drop")
+  # Reshape Fact table long
 
-  df_hts_pos <- df_msd %>%
-    filter(fiscal_year == 2021,
-           orgunituid == "XM5FIOVzxeq",
-           indicator %in% c("HTS_TST"),
-           standardizeddisaggregate == "Modality/Age/Sex/Result",
-           str_detect(categoryoptioncomboname, "Newly Tested Positives|Positive")) %>%
-    group_by(orgunituid, indicator) %>%
-    summarise(across(targets:cumulative, sum, na.rm = T), .groups = "drop") %>%
-    mutate(indicator = "HTS_TST (Positive)")
+  df_fact %>%
+    msd_reshape_fact() %>%
+    find_pkeys(colnames = T)
 
-  df_hts_neg <- df_msd %>%
-    filter(fiscal_year == 2021,
-           orgunituid == "XM5FIOVzxeq",
-           indicator %in% c("HTS_TST"),
-           standardizeddisaggregate == "Modality/Age/Sex/Result",
-           str_detect(categoryoptioncomboname, "New Negatives|Negative")) %>%
-    group_by(orgunituid, indicator) %>%
-    summarise(across(targets:cumulative, sum, na.rm = T), .groups = "drop") %>%
-    mutate(indicator = "HTS_TST (Negative)")
+  df_fact %>%
+    msd_reshape_fact() %>%
+    db_create_table(tbl_sitexim_long, ., conn,
+                    meta = cols_msd_sites,
+                    pkeys = c("fiscal_year", "period", "orgunituid", "mech_code",
+                              "dataelement", "standardizeddisaggregate",
+                              "categoryoptioncomboname", "value_type"),
+                    overwrite = T)
 
-  df_hts_tn %>%
-    bind_rows(df_hts_td, df_hts_pos, df_hts_neg)
+  # Add Foreign Keys
+  fkeys <- list("msd_orgunits" = "orgunituid",
+                "msd_mechanisms" = "mech_code",
+                "msd_dataelements" = c("dataelement", "standardizeddisaggregate", "categoryoptioncomboname"))
+
+
+  walk(names(fkeys), function(.x) {
+    print(.x)
+    print(fkeys[[.x]])
+    print(base::paste(fkeys[[.x]], collapse = ", "))
+  })
+
+  db_update_table(tbl_sitexim_long, conn, fkeys = fkeys)
+
+  # i Adding Foreign Key(s): msd_sitexim_long (orgunituid) => msd_orgunits (orgunituid)
+  # <SQL> ALTER TABLE msd_sitexim_long ADD FOREIGN KEY (orgunituid) REFERENCES msd_orgunits (orgunituid);
+  # i Adding Foreign Key(s): msd_sitexim_long (mech_code) => msd_mechanisms (mech_code)
+  # <SQL> ALTER TABLE msd_sitexim_long ADD FOREIGN KEY (mech_code) REFERENCES msd_mechanisms (mech_code);
+  # i Adding Foreign Key(s): msd_sitexim_long (dataelement, standardizeddisaggregate, categoryoptioncomboname) => msd_dataelements (dataelement, standardizeddisaggregate, categoryoptioncomboname)
+  # <SQL> ALTER TABLE msd_sitexim_long ADD FOREIGN KEY (dataelement, standardizeddisaggregate, categoryoptioncomboname) REFERENCES msd_dataelements (dataelement, standardizeddisaggregate, categoryoptioncomboname);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

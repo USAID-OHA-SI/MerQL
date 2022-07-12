@@ -4,8 +4,13 @@
 #install.packages("odbc")
 
 library(tidyverse)
+library(glamr)
+library(gophr)
 
 source("Scripts/00_Utilities.R")
+
+## DB Paths
+db_path <- "../../DATABASES/SQLite/country_msd_psnu.db"
 
 ## Set Postgres DBMS Access
 ## 1 time set up
@@ -38,20 +43,25 @@ pg_pwd()
 
 sort(unique(odbc::odbcListDrivers()[[1]]))
 
-RPostgres::Postgres()
-RPostgreSQL::PostgreSQL()
+# SQLite Connection
+conn <- db_connection(db_file = db_path)
+RSQLite::dbDisconnect(conn)
+
+#RPostgres::Postgres() #=> works better
+#RPostgreSQL::PostgreSQL()
 
 # conn <- db_connection()
 # conn <- db_connection(db_name = "dvdrental")
-# conn <- db_connection(db_name = "dev")
-
-DBI::dbDisconnect(conn)
+#conn <- db_connection(db_name = "dev")
+conn <- db_connection(db_name = pg_database())
 
 conn
 
 DBI::dbGetInfo(conn)
 
 str(conn)
+
+#DBI::dbDisconnect(conn)
 
 db_name(conn)
 
@@ -62,7 +72,9 @@ db_schemas(conn)
 dbListTables(conn)
 
 db_tables(conn)
+db_tables(conn, details = T)
 db_tables(conn, schema = "public")
+db_tables(conn, schema = "datim", details = T)
 db_tables(conn, schema = "public", details = T)
 db_tables(conn, schema = "pg_toast", details = T)
 
@@ -86,9 +98,41 @@ sql_cmd_1b <- "
 "
 
 dbExecute(conn, sql_cmd_1a)
-dbExecute(conn, sql_cmd_1b, params = list("dev2", pg_user()))
+dbExecute(conn, sql_cmd_1b, params = list("dev3", pg_user()))
 
-## Create table from data from
+## Create Schema
+sql_cmd_schema_1a <- "
+-- SCHEMA: hfr
+
+-- DROP SCHEMA IF EXISTS hfr ;
+
+CREATE SCHEMA IF NOT EXISTS hfr
+    AUTHORIZATION bkagniniwa;
+
+COMMENT ON SCHEMA hfr
+    IS 'HFR Schema';
+
+GRANT ALL ON SCHEMA hfr TO bkagniniwa;
+"
+
+## Add Countraints to table - Primary Keys, Foreign Keys
+
+sql_cmd_2a <- "
+  ALTER TABLE $1
+  ADD PRIMARY KEY ($2);
+"
+
+sql_cmd_2b <- "
+  ALTER TABLE $1
+  ADD CONSTRAINT $2
+  FOREIGN KEY ($3)
+  REFERENCES $4 ($5)
+"
+
+sql_cmd_2c
+
+## Create sample table from iris data
+
 data("iris")
 
 dbCreateTable(conn, "tbl_iris", tibble::as_tibble(iris))
@@ -98,3 +142,4 @@ dplyr::tbl(conn, "tbl_iris") %>% head() %>% show_query()
 dplyr::tbl(conn, "tbl_iris") %>% head() %>% explain()
 dplyr::tbl(conn, "tbl_iris") %>% head()
 dplyr::tbl(conn, "tbl_iris") %>% head() %>% collect()
+dplyr::tbl(conn, "tbl_iris") %>% collect()
