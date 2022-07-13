@@ -45,6 +45,9 @@
   #' @title Pull Data Elements from MSD Dataset
   #'
   msd_orgs <- function(df_msd, level = NULL) {
+    # Notification
+    if (interactive())
+      usethis::ui_info("INFO - Extracting Organization Details from MSD ...")
 
     df_outable <- glamr::get_outable(
       username = datim_user(),
@@ -63,9 +66,54 @@
     return(df_orgs_sites)
   }
 
+  #' @title Pull Mechanisms Details from MSD
+  #'
+  msd_mechanisms <- function(df_msd, level = "all") {
+    # Notification
+    if (interactive())
+      usethis::ui_info("INFO - Extracting mechanisms details from MSD ...")
+
+    cols_mech <- str_msd_sites$mechanisms
+
+    if (!all(cols_mech %in% names(df_msd)))
+      usethis::ui_stop(glue::glue("ERROR - MSD Table is missing required columns: {paste(cols_fact, collapse=', ')}"))
+
+    df_mechs <- df_msd %>%
+      select(one_of(str_msd_sites$mechanisms)) %>%
+      distinct() %>%
+      msd_clean_mechs()
+
+    if (nrow(df_mechs) != nrow(distinct(df_mechs, mech_code)))
+        usethis::ui_warn("WARNING - Mechanisms from the MSD seems to have duplicate records")
+
+    return(df_mechs)
+  }
+
+  #' @title Pull Partners Details from Mechanisms
+  #'
+  #'
+  msd_partners <- function(df_msd) {
+    df_msd %>%
+      select(any_of(str_msd_sites$mech_partners)) %>%
+      distinct()
+  }
+
+  #' @title Pull Awards Details from Mechanisms
+  #'
+  #'
+  msd_awards <- function(df_msd) {
+    df_msd %>%
+      select(any_of(str_msd_sites$mech_awards)) %>%
+      distinct()
+  }
+
   #' @title Clean Mechanisms / TBD
   #'
   msd_clean_mechs <- function(df_mechs) {
+    # Notification
+    if (interactive())
+      usethis::ui_info("INFO - Cleaning TBDs & Placeholders in Mechanism data ...")
+
     df_mechs %>%
       mutate(
         award_number = case_when(
@@ -94,6 +142,9 @@
   #' @title Pull Data Elements from MSD Dataset
   #'
   msd_dataelements <- function(df_msd) {
+    # Notification
+    if (interactive())
+      usethis::ui_info("INFO - Extracting Data Elements details from MSD ...")
 
     # DataElement Variables
     cols_elmts <- c(
@@ -168,10 +219,13 @@
   #' @title Get Fact Table
   #'
   msd_fact <- function(df_msd, df_elmts = NULL) {
+    # Notification
+    if (interactive())
+      usethis::ui_info("INFO - Extracting fact table from MSD ...")
 
     # Fact Table Variables
     cols_fact <- c(
-      "fiscal_year",  # => Used to reshape reshape / pivot
+      "fiscal_year",  # => Used to pivot long
       "orgunituid",   # => Join to Org Hierarchy
       "mech_code",    # => Join to Attributes Option Combos - Awards & Partners
       "indicator",      # DataElement key
@@ -205,7 +259,7 @@
     if (!is.null(df_elmts) & !all(cols_elmts %in% names(df_elmts)))
       usethis::ui_stop(glue::glue("ERROR - Reference Table is missing required columns: {paste(cols_elmts, collapse=', ')}"))
 
-    # Distinct DataElements
+    # Distinct Data Elements
     df_elements <- df_elmts %>%
       select(all_of(cols_elmts)) %>%
       distinct()
@@ -223,6 +277,10 @@
   #' @title Reshape MSD Fact Table
   #'
   msd_reshape_fact <- function(df_msd) {
+    # Notification
+    if (interactive())
+      usethis::ui_info("INFO - Reshaping fact table into long format ...")
+
     df_msd %>%
       pivot_longer(cols = c(starts_with("qtr"), "cumulative", "targets"),
                    names_to = "value_type",
@@ -248,7 +306,10 @@
 
   #' @title Unpack MSD Dataset
   #'
-  msd_split <- function(df_msd, reshape = T) {
+  msd_split <- function(df_msd, reshape = FALSE) {
+    # Notification
+    if (interactive())
+      usethis::ui_info("INFO - Spliting MSD Dataset into dimensions and fact ...")
 
     df <- list()
 
@@ -256,9 +317,7 @@
 
     df$de <- msd_dataelements(df_msd)
 
-    df$mechs <- msd_mechs(df_msd)
-
-    df$partners <- msd_partners(df_msd)
+    df$mechs <- msd_mechanisms(df_msd)
 
     df$fact <- msd_fact(df_msd, df_elmts = df$de)
 
@@ -620,7 +679,8 @@
 
   # Org Hierarchy ----
 
-  # Table Names
+  # Orgs Table Names
+
   tbl_orgs <- "msd_orgunits"
 
   tbl_org_sites <- "msd_org_sites"
@@ -677,7 +737,7 @@
   df_orgs_sites %>%
     select(all_of(str_msd_sites$org_psnus)) %>%
     distinct() %>%
-    db_create_table(tbl_org_comms, ., conn,
+    db_create_table(tbl_org_psnus, ., conn,
                     meta = cols_msd_sites,
                     pkeys = "psnuuid",
                     overwrite = T)
@@ -733,10 +793,7 @@
   tbl_mechs_awards <- "msd_mech_awards"
   tbl_mechs_partners <- "msd_mech_partners"
 
-  df_mechs <- df_sites %>%
-    select(one_of(str_msd_sites$mechanisms)) %>%
-    distinct() %>%
-    msd_clean_mechs()
+  df_mechs <- df_sites %>% msd_mechanisms()
 
   df_mechs %>% glimpse()
 
@@ -1002,6 +1059,13 @@
 
 
 
+
+
+
+
+
+  # Split MSD Datasets
+  #df_sitexim <- df_sites %>% msd_split()
 
 
 
