@@ -3,6 +3,7 @@
 ##  PURPOSE: Utility functions
 ##  LICENCE: MIT
 ##  DATE:    2021-10-08
+##  UPDATED: 2022-07-14
 
 # Libraries ----
 
@@ -10,13 +11,10 @@
   library(gophr)
   library(glamr)
   library(janitor)
-  library(DBI)
-  library(uuid)
+  # library(DBI)
+  # library(uuid)
 
   source("./Scripts/00_Utilities.R")
-  #source("./Scripts/02_DATIM_Resources.R")
-  #source("./Scripts/02_DATIM_Dimensions.R")
-  #source("./Scripts/02_DATIM_SQLViews.R")
 
 # GLOBALS ----
 
@@ -340,12 +338,12 @@
 
   # Metadata - Data Elements
   #df_dt_elts <- datim_resources(res_name = "Data Elements", dataset = T)
-  df_dt_elts <- datim_dataements()
+  #df_dt_elts <- datim_dataements()
 
   # MSD - Site x IM ---
   df_sites <- glamr::return_latest(
       folderpath = glamr::si_path(),
-      pattern = "Site_IM_FY20.*_Nigeria"
+      pattern = paste0("Site_IM_FY20.*_", cntry)
     ) %>%
     gophr::read_msd()
 
@@ -375,7 +373,7 @@
       )
     )
 
-## DATIM Data Schema ----
+# DATIM Data Schema ----
 
   # DIMENSIONS
   #
@@ -397,7 +395,7 @@
   #
   # VALUE (MEASUREMENT)
   # Value (Targets, Qtr1-4, Cumulative)
-## COLUMN Data Types ----
+# COLUMN Data Types ----
 
   cols_msd_sites <- c(
     "period"                 = "varchar(6)",    # ID
@@ -466,7 +464,7 @@
   )
 
 
-## SITE x IM Data Structure ----
+# SITE x IM Data Structure ----
 
   str_msd_sites <- list(
     # WHEN
@@ -675,9 +673,9 @@
 # SQL View => hyperfile, data long
 # SQL View => hyperfile + geospatial (site + psnu + OU/country)
 
-## NORMALISE ----
+# NORMALISE ----
 
-  # Org Hierarchy ----
+  ## Org Hierarchy ----
 
   # Orgs Table Names
 
@@ -786,7 +784,7 @@
   remove(df_orgs_sites)
 
 
-  # Mechanisms ----
+  ## Mechanisms ----
 
   # Table Names
   tbl_mechanisms <- "msd_mechanisms"
@@ -827,7 +825,7 @@
   remove(df_mechs)
 
 
-  # Data Elements, Indicators & Disaggs ----
+  ## Data Elements, Indicators & Disaggs ----
   tbl_elements <- "msd_dataelements"
   tbl_inds <- "msd_indicators"
   tbl_disaggs <- "msd_disaggregates"
@@ -943,7 +941,7 @@
                     overwrite = T)
 
 
-  # Data -----
+  ## Data -----
 
   # Table Names
   tbl_sitexim_wide_rsts <- "msd_sitexim_wide_results"
@@ -1064,7 +1062,7 @@
 
 
 
-  # Split MSD Datasets
+  ## Split MSD Datasets
   #df_sitexim <- df_sites %>% msd_split()
 
 

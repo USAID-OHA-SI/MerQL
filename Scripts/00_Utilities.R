@@ -197,8 +197,8 @@ db_connection <- function(db_driver = RPostgres::Postgres(),
 
   conn <- NULL
 
-  if (!base::is.null(db_name) & str_detect(db_name, ".*[.]db$|.*[.]sqlite$")) {
-    conn <- RSQLite::dbConnect(RSQLite::SQLite(), db_file)
+  if (str_detect(db_name, ".*[.]db$|.*[.]sqlite$|.*[.]sqlite3$")) {
+    conn <- RSQLite::dbConnect(RSQLite::SQLite(), db_name)
   } else {
     conn <- pg_connection(db_driver, db_host, db_port, db_name, db_user, db_pwd)
   }

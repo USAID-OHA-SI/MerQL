@@ -3,7 +3,7 @@
 ##  PURPOSE: Extract Datim Data Exchange Resources
 ##  LICENCE: MIT
 ##  DATE:    2021-10-08
-##  UPDATED: 2022-07-12
+##  UPDATED: 2022-07-14
 
 # Libraries ----
 

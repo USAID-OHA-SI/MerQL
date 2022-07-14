@@ -10,7 +10,9 @@ library(gophr)
 source("Scripts/00_Utilities.R")
 
 ## DB Paths
-db_path <- "../../DATABASES/SQLite/country_msd_psnu.db"
+cntry <- "Nigeria"
+
+db_sqlite <- cntry %>% paste0("_msd_sitexim.db")
 
 ## Set Postgres DBMS Access
 ## 1 time set up
@@ -39,48 +41,57 @@ pg_user()
 get_key("local-postgres", "password")
 pg_pwd()
 
-## Establish Connection with DB Server
+## List odbc DB Connection drivers
 
 sort(unique(odbc::odbcListDrivers()[[1]]))
 
-# SQLite Connection
-conn <- db_connection(db_file = db_path)
-RSQLite::dbDisconnect(conn)
+# Test SQLite Connection
+# Note: The SQLite DB file will be created if it does not already exist
 
-#RPostgres::Postgres() #=> works better
-#RPostgreSQL::PostgreSQL()
+slite_conn <- db_connection(db_name = db_sqlite)
 
-# conn <- db_connection()
-# conn <- db_connection(db_name = "dvdrental")
-#conn <- db_connection(db_name = "dev")
+slite_conn
+
+RSQLite::dbDisconnect(slite_conn)
+
+# Test Postgres Connection
+# Note: driver RPostgres::Postgres() #=> works better vs RPostgreSQL::PostgreSQL()
+
+# conn <- db_connection(db_name = "postgres")
+
 conn <- db_connection(db_name = pg_database())
 
 conn
 
+# Get connection info
 DBI::dbGetInfo(conn)
 
 str(conn)
 
-#DBI::dbDisconnect(conn)
-
+# Get db name from connecion instance
 db_name(conn)
 
+# List databases
 db_list(conn)
 
+# List schemas
+# Note: only schemas with tables will be listed
 db_schemas(conn)
 
-dbListTables(conn)
+# List tables
+DBI::dbListTables(conn)
 
 db_tables(conn)
 db_tables(conn, details = T)
 db_tables(conn, schema = "public")
-db_tables(conn, schema = "datim", details = T)
 db_tables(conn, schema = "public", details = T)
-db_tables(conn, schema = "pg_toast", details = T)
+db_tables(conn, schema = "datim", details = T)
+
+db_tables(conn, schema = "test", details = T)
 
 ## Create Database
 sql_cmd_1a <- "
-  CREATE DATABASE dev1 WITH
+  CREATE DATABASE test WITH
     OWNER = postgres ENCODING = 'UTF8'
     LC_COLLATE = 'en_US.UTF-8'
     LC_CTYPE = 'en_US.UTF-8'
@@ -98,7 +109,7 @@ sql_cmd_1b <- "
 "
 
 dbExecute(conn, sql_cmd_1a)
-dbExecute(conn, sql_cmd_1b, params = list("dev3", pg_user()))
+dbExecute(conn, sql_cmd_1b, params = list(str_to_lower(cntry), pg_user()))
 
 ## Create Schema
 sql_cmd_schema_1a <- "
@@ -107,15 +118,15 @@ sql_cmd_schema_1a <- "
 -- DROP SCHEMA IF EXISTS hfr ;
 
 CREATE SCHEMA IF NOT EXISTS hfr
-    AUTHORIZATION bkagniniwa;
+    AUTHORIZATION postgres;
 
 COMMENT ON SCHEMA hfr
     IS 'HFR Schema';
 
-GRANT ALL ON SCHEMA hfr TO bkagniniwa;
+GRANT ALL ON SCHEMA hfr TO postgres;
 "
 
-## Add Countraints to table - Primary Keys, Foreign Keys
+## Add Constraints to table - Primary Keys, Foreign Keys
 
 sql_cmd_2a <- "
   ALTER TABLE $1
@@ -123,23 +134,37 @@ sql_cmd_2a <- "
 "
 
 sql_cmd_2b <- "
+  ALTER TABLE test_fact
+  ADD CONSTRAINT test_fkey
+  FOREIGN KEY (id)
+  REFERENCES test_dim1 (id)
+"
+
+sql_cmd_2c <- "
   ALTER TABLE $1
   ADD CONSTRAINT $2
   FOREIGN KEY ($3)
   REFERENCES $4 ($5)
 "
 
-sql_cmd_2c
-
 ## Create sample table from iris data
 
 data("iris")
 
-dbCreateTable(conn, "tbl_iris", tibble::as_tibble(iris))
-dbAppendTable(conn, "tbl_iris", tibble::as_tibble(iris))
+tblname <- "test_iris"
 
-dplyr::tbl(conn, "tbl_iris") %>% head() %>% show_query()
-dplyr::tbl(conn, "tbl_iris") %>% head() %>% explain()
-dplyr::tbl(conn, "tbl_iris") %>% head()
-dplyr::tbl(conn, "tbl_iris") %>% head() %>% collect()
-dplyr::tbl(conn, "tbl_iris") %>% collect()
+# Table will be created based on df columns / data type
+DBI::dbCreateTable(conn, tblname, tibble::as_tibble(iris))
+
+# Load data into table
+DBI::dbAppendTable(conn, tblname, tibble::as_tibble(iris))
+
+# Test Access / Query with dplyr
+# Note: this creates a table from the data source [Postgres DB Table]
+dplyr::tbl(conn, tblname) %>% head() %>% show_query()
+dplyr::tbl(conn, tblname) %>% head() %>% explain()
+
+dplyr::tbl(conn, tblname) %>% head()
+dplyr::tbl(conn, tblname) %>% head() %>% collect()
+dplyr::tbl(conn, tblname) %>% collect()
+
