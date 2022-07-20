@@ -705,6 +705,7 @@
 
   nrow(df_orgs_sites) == nrow(distinct(df_orgs_sites, orgunituid))
 
+
   # All org units
   df_orgs_sites %>%
     db_create_table(tbl_orgs, ., conn,

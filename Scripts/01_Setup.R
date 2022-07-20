@@ -6,6 +6,7 @@
 library(tidyverse)
 library(glamr)
 library(gophr)
+library(DBI)
 
 source("Scripts/00_Utilities.R")
 
@@ -16,6 +17,10 @@ db_sqlite <- cntry %>% paste0("_msd_sitexim.db")
 
 ## Set Postgres DBMS Access
 ## 1 time set up
+
+# set_key(service = "ghservey", "ghserver-hostname")
+# set_key(service = "ghservey", "username")
+# set_key(service = "ghservey", "password")
 
 set_key(service = pg_service("local"), "host")
 set_key(service = pg_service("local"), "port")
@@ -43,7 +48,7 @@ pg_pwd()
 
 ## List odbc DB Connection drivers
 
-sort(unique(odbc::odbcListDrivers()[[1]]))
+#sort(unique(odbc::odbcListDrivers()[[1]]))
 
 # Test SQLite Connection
 # Note: The SQLite DB file will be created if it does not already exist
@@ -90,26 +95,33 @@ db_tables(conn, schema = "datim", details = T)
 db_tables(conn, schema = "test", details = T)
 
 ## Create Database
-sql_cmd_1a <- "
-  CREATE DATABASE test WITH
-    OWNER = postgres ENCODING = 'UTF8'
-    LC_COLLATE = 'en_US.UTF-8'
-    LC_CTYPE = 'en_US.UTF-8'
-    TABLESPACE = pg_default
-    CONNECTION LIMIT = -1;
-"
+sql_cmd_1a <- "CREATE DATABASE test;"
+
+# sql_cmd_1a <- "
+#   CREATE DATABASE test WITH
+#     OWNER = postgres ENCODING = 'UTF8'
+#     LC_COLLATE = 'en_US.UTF-8'
+#     LC_CTYPE = 'en_US.UTF-8'
+#     TABLESPACE = pg_default
+#     CONNECTION LIMIT = -1;
+# "
 
 sql_cmd_1b <- "
   CREATE DATABASE $1 WITH
-    OWNER = $2 ENCODING = 'UTF8'
-    LC_COLLATE = 'en_US.UTF-8'
-    LC_CTYPE = 'en_US.UTF-8'
-    TABLESPACE = pg_default
-    CONNECTION LIMIT = -1;
+    OWNER = $2;
 "
 
-dbExecute(conn, sql_cmd_1a)
-dbExecute(conn, sql_cmd_1b, params = list(str_to_lower(cntry), pg_user()))
+# sql_cmd_1b <- "
+#   CREATE DATABASE $1 WITH
+#     OWNER = $2 ENCODING = 'UTF8'
+#     LC_COLLATE = 'en_US.UTF-8'
+#     LC_CTYPE = 'en_US.UTF-8'
+#     TABLESPACE = pg_default
+#     CONNECTION LIMIT = -1;
+# "
+
+DBI::dbExecute(conn, sql_cmd_1a)
+DBI::dbExecute(conn, sql_cmd_1b, params = list(str_to_lower(cntry), pg_user()))
 
 ## Create Schema
 sql_cmd_schema_1a <- "
@@ -161,10 +173,21 @@ DBI::dbAppendTable(conn, tblname, tibble::as_tibble(iris))
 
 # Test Access / Query with dplyr
 # Note: this creates a table from the data source [Postgres DB Table]
-dplyr::tbl(conn, tblname) %>% head() %>% show_query()
+dplyr::tbl(conn, tblname)
+
+dplyr::tbl(conn, tblname) %>%
+  head() %>%
+  show_query()
+
+dplyr::tbl(conn, tblname) %>%
+  filter(Sepal.Width > 2, Sepal.Length == 5) %>%
+  show_query()
+
 dplyr::tbl(conn, tblname) %>% head() %>% explain()
 
-dplyr::tbl(conn, tblname) %>% head()
-dplyr::tbl(conn, tblname) %>% head() %>% collect()
+dplyr::tbl(conn, tblname) %>% head(100)
+
+dplyr::tbl(conn, tblname) %>% head(20) %>% collect()
+
 dplyr::tbl(conn, tblname) %>% collect()
 
