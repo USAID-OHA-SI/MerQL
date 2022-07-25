@@ -19,7 +19,11 @@ The goal of MerQL is to help OHA SI Analysts setup a local Postgres Database for
 
 Run `./Scripts/01_Setup.R` script
 
-This file has some initial access test cases
+**Note**: This file has some initial access test cases
+
+# DATIM Reference Tables
+
+Run `./Scripts/02_MSD_SQLViews.R` to create local copies of DATIM Data Exchange Reference tables.
 
 # Load MSD Site x IM Datasets into a Star Schema like tables
 
@@ -27,9 +31,6 @@ Edit `./Scripts/02_MSD_Utilities.R` script to set your or preferred country name
 
 **Note**: Make sure to run the script one block at the time (for the first time)
 
-# DATIM Reference Tables
-
-Guidance forth coming ...
 
 ---
 

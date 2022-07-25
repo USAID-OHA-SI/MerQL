@@ -97,28 +97,10 @@ db_tables(conn, schema = "test", details = T)
 ## Create Database
 sql_cmd_1a <- "CREATE DATABASE test;"
 
-# sql_cmd_1a <- "
-#   CREATE DATABASE test WITH
-#     OWNER = postgres ENCODING = 'UTF8'
-#     LC_COLLATE = 'en_US.UTF-8'
-#     LC_CTYPE = 'en_US.UTF-8'
-#     TABLESPACE = pg_default
-#     CONNECTION LIMIT = -1;
-# "
-
 sql_cmd_1b <- "
   CREATE DATABASE $1 WITH
     OWNER = $2;
 "
-
-# sql_cmd_1b <- "
-#   CREATE DATABASE $1 WITH
-#     OWNER = $2 ENCODING = 'UTF8'
-#     LC_COLLATE = 'en_US.UTF-8'
-#     LC_CTYPE = 'en_US.UTF-8'
-#     TABLESPACE = pg_default
-#     CONNECTION LIMIT = -1;
-# "
 
 DBI::dbExecute(conn, sql_cmd_1a)
 DBI::dbExecute(conn, sql_cmd_1b, params = list(str_to_lower(cntry), pg_user()))
@@ -127,7 +109,7 @@ DBI::dbExecute(conn, sql_cmd_1b, params = list(str_to_lower(cntry), pg_user()))
 sql_cmd_schema_1a <- "
 -- SCHEMA: hfr
 
--- DROP SCHEMA IF EXISTS hfr ;
+-- DROP SCHEMA IF EXISTS hfr;
 
 CREATE SCHEMA IF NOT EXISTS hfr
     AUTHORIZATION postgres;

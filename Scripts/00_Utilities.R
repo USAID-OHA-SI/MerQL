@@ -287,6 +287,29 @@ db_schemas <- function(conn) {
 }
 
 
+#' @title Create new database schema
+#'
+db_schema <- function(conn, name) {
+
+  db_name <- db_in_use(conn)
+
+  usethis::ui_info(glue::glue("Current Database [{db_name}]"))
+  usethis::ui_info(glue::glue("Adding new schema [{name}]"))
+
+  sql_cmd <- glue::glue("CREATE SCHEMA IF NOT EXISTS {name};")
+
+  tryCatch(
+    expr = {
+      DBI::dbSendQuery(conn, sql_cmd)
+    },
+    error = function(err) {
+      usethis::ui_stop("ERROR")
+      print(err)
+    }
+  )
+}
+
+
 #' @title List database and schema tables
 #'
 db_tables <- function(conn,
@@ -341,6 +364,24 @@ db_table_exists <- function(conn, tbl_name) {
 }
 
 
+#' @title Get Table full name
+#'
+#'
+db_table_id <- function(tbl_name) {
+
+  # Extract schema
+  if(str_detect(tbl_name, ".*[.].*")) {
+    schema <- str_extract(tbl_name, ".*(?=\\.)")
+    name <- str_extract(tbl_name, "(?<=\\.).*")
+  } else {
+    schema <- "public"
+    name <- tbl_name
+  }
+
+  DBI::Id(schema = schema, table = name)
+}
+
+
 #' @title
 #'
 db_create_table <- function(tbl_name, fields,
@@ -365,6 +406,8 @@ db_create_table <- function(tbl_name, fields,
     schema <- "public"
     name <- tbl_name
   }
+
+  tbl_full_name <- db_table_id(tbl_name)
 
   # Check existing tables
   usethis::ui_info(glue::glue("Schema: {schema}"))
@@ -398,10 +441,10 @@ db_create_table <- function(tbl_name, fields,
   usethis::ui_info("Creating table ...")
 
   if (!base::is.null(meta)) {
-    DBI::dbCreateTable(conn, tbl_name, fields = cols)
+    DBI::dbCreateTable(conn, tbl_full_name, fields = cols)
 
   } else {
-    DBI::dbCreateTable(conn, tbl_name, fields = fields)
+    DBI::dbCreateTable(conn, tbl_full_name, fields = fields)
   }
 
   # Add Primary Keys
@@ -422,7 +465,7 @@ db_create_table <- function(tbl_name, fields,
   # Insert data
   if(load_data & is.data.frame(fields) & nrow(fields) > 0) {
     usethis::ui_info(glue::glue("Appending data ... {nrow(fields)}"))
-    DBI::dbAppendTable(conn, tbl_name, fields)
+    DBI::dbAppendTable(conn, tbl_full_name, fields)
   }
 
   usethis::ui_done("Complete!")
@@ -490,13 +533,15 @@ db_drop_table <- function(tbl_name, conn = NULL) {
 
   db_name <- db_in_use(conn)
 
+  tbl_full_name <- db_table_id(tbl_name)
+
   # Check table exists before dropping
   if (db_table_exists(conn, tbl_name)) {
 
     usethis::ui_info(glue::glue("Dropping table [{tbl_name}] from [{db_name}] ..."))
 
     # Drop Table
-    DBI::dbRemoveTable(conn, tbl_name)
+    DBI::dbRemoveTable(conn, tbl_full_name)
 
     usethis::ui_done("Table Dropped!")
 
@@ -827,8 +872,6 @@ datim_sqlviews <- function(view_name = NULL,
 
     dta_uid <- data$uid
 
-    print(data$uid)
-
     dta_url <- base_url %>%
       paste0(end_point, dta_uid, "/data", options, "&fields=*") #:identifiable, :nameable
 
@@ -848,8 +891,6 @@ datim_sqlviews <- function(view_name = NULL,
     # Query data
     data <- dta_url %>%
       datim_execute_query(username, password, flatten = TRUE)
-
-    print(data$status)
 
     # Detect Errors
     if (!is.null(data$status)) {
@@ -963,9 +1004,9 @@ datim_cntryview <- function() {
 #'
 datim_orgview <- function(cntry_code = NULL) {
 
-  if (is.null(cntry_code)) {
-    df_cntries <- datim_cntryview()
+  df_cntries <- datim_cntryview()
 
+  if (is.null(cntry_code)) {
     df_orgview <- df_cntries %>%
       pmap_dfr(~datim_sqlviews(
         view_name = "Data Exchange: Organisation Units",
@@ -975,6 +1016,9 @@ datim_orgview <- function(cntry_code = NULL) {
 
     return(df_orgview)
   }
+
+  if (!cntry_code %in% df_cntries$orgunit_code)
+    usethis::ui_stop("ERROR - Invalid country code.")
 
   datim_sqlviews(
     view_name = "Data Exchange: Organisation Units",
