@@ -10,6 +10,7 @@
   library(tidyverse)
   library(gophr)
   library(glamr)
+  library(grabr)
   library(janitor)
   library(DBI)
   library(uuid)
@@ -30,6 +31,19 @@
 # SQL Views ----
 
   datim_sqlviews()
+
+  datim_sqlviews(view_name = "MER data elements", dataset = T, )
+  datim_sqlviews(view_name = "MER category option combos", dataset = T)
+  datim_sqlviews(view_name = "Data sets", dataset = T)
+
+  df_mech_nga <- datim_mechview() %>%
+    select(uid, mechanism) %>%
+    filter(uid %in% c("v1kPnv5KfhH", "dxmWiSFC4Ec", "adMgu5xx9EN",
+                      "bSG3l4iz5o0", "MJjm3e0OKvy", "ZlQLnKsU2hp",
+                      "mYAtSbuTcTX"))
+
+  df_mech_nga %>% clipr::write_clip()
+
 
 # DATIM Data Exchange ----
 

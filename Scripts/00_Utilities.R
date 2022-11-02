@@ -474,10 +474,13 @@ db_create_table <- function(tbl_name, fields,
 #' @title Update / Alter Table Add PKEYs
 #'
 #'
-db_update_table <- function(tbl_name, conn = NULL, pkeys = NULL, fkeys = NULL) {
+db_update_table <- function(tbl_name,
+                            conn = NULL,
+                            pkeys = NULL,
+                            fkeys = NULL) {
 
   if (base::is.null(pkeys) & base::is.null(fkeys)) {
-    usethis::ui_stop("Missing required one of keys: primary or foreign")
+    usethis::ui_stop("Missing one of the required keys: primary or foreign")
   }
 
   # Add Primary Keys
@@ -832,7 +835,7 @@ datim_sqlviews <- function(view_name = NULL,
 
   # Query data
   data <- api_url %>%
-    glamr::datim_execute_query(username, password, flatten = TRUE) %>%
+    grabr::datim_execute_query(username, password, flatten = TRUE) %>%
     purrr::pluck("sqlViews") %>%
     tibble::as_tibble() %>%
     dplyr::rename(uid = id, name = displayName)
@@ -890,7 +893,7 @@ datim_sqlviews <- function(view_name = NULL,
 
     # Query data
     data <- dta_url %>%
-      datim_execute_query(username, password, flatten = TRUE)
+      grabr::datim_execute_query(username, password, flatten = TRUE)
 
     # Detect Errors
     if (!is.null(data$status)) {
