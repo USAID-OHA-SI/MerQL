@@ -757,7 +757,7 @@ datim_deview <- function(datasetuid) {
   df_deview <- datim_sqlviews(
     view_name = "Data sets, elements and combos paramaterized",
     dataset = TRUE,
-    query = list("dataSets" = datasetuid))
+    vquery = list("dataSets" = datasetuid))
 
   df_deview %>%
     separate(dataset,
@@ -809,7 +809,8 @@ datim_data_elementsss <- function(username = NULL,
 datim_sqlviews <- function(view_name = NULL,
                            dataset = FALSE,
                            datauid = NULL,
-                           query = NULL,
+                           vquery = NULL,
+                           fquery = NULL,
                            username = NULL,
                            password = NULL,
                            base_url = NULL) {
@@ -828,7 +829,7 @@ datim_sqlviews <- function(view_name = NULL,
   # Other Options
   end_point <- "/api/sqlViews/"
 
-  options <- "?format=json&paging=false&"
+  options <- "?format=json&paging=false"
 
   # API URL
   api_url <- base_url %>% paste0(end_point, options)
@@ -878,13 +879,26 @@ datim_sqlviews <- function(view_name = NULL,
     dta_url <- base_url %>%
       paste0(end_point, dta_uid, "/data", options, "&fields=*") #:identifiable, :nameable
 
-    # apply query whenever needed
-    if (!is.null(query)) {
-      q <- names(query) %>%
-        map_chr(~paste0("var=", .x, ":", query[.x])) %>%
-        paste0("&", .)
 
-      print(glue::glue("SQL View query: {q}"))
+    # apply variable query if needed
+    if (!is.null(vquery)) {
+      v <- names(vquery) %>%
+        map_chr(~paste0(.x, ":", vquery[.x])) %>%
+        paste0(collapse = "&") %>%
+        paste0("&var=", .)
+
+      print(glue::glue("SQL View variable query: {v}"))
+
+      dta_url <- dta_url %>% paste0(v)
+    }
+    # apply field query if needed
+    if (!is.null(fquery)) {
+      q <- names(fquery) %>%
+        map_chr(~paste0(.x, ":eq:", fquery[.x])) %>%
+        paste0(collapse = "&") %>%
+        paste0("&filter=", .)
+
+      print(glue::glue("SQL View field query: {q}"))
 
       dta_url <- dta_url %>% paste0(q)
     }
@@ -953,27 +967,58 @@ datim_peview <- function() {
 #' @title Datim Mechanism SQLView
 #'
 #'
-datim_mechview <- function() {
+datim_mechview <- function(query = NULL) {
 
+  # Extract OU Mechs
   df_mechview <- datim_sqlviews(
     view_name = "Mechanisms partners agencies OUS Start End",
-    dataset = TRUE)
+    dataset = TRUE,
+    fquery = query)
 
+  # Reshape Results - mech code, award number, and name separations chars
+  sep_chrs <- c("[[:space:]]+",
+                "[[:space:]]+-",
+                "[[:space:]]+-[[:space:]]+",
+                "[[:space:]]+-[[:space:]]+-",
+                "[[:space:]]+-[[:space:]]+-[[:space:]]+",
+                "[[:space:]]+-[[:space:]]+-[[:space:]]+-",
+                "-[[:space:]]+",
+                "-[[:space:]]+-",
+                "-[[:space:]]+-[[:space:]]+",
+                "-[[:space:]]+-[[:space:]]+-",
+                "-[[:space:]]+-[[:space:]]+-[[:space:]]+",
+                "-[[:space:]]+-[[:space:]]+-[[:space:]]+-")
+
+  # Reshape Results - separation
   df_mechview %>%
     rename(
       mech_code = code,
       operatingunit = ou,
       prime_partner = partner,
       prime_partner_id = primeid,
-      funding_agency = agency
+      funding_agency = agency,
+      operatingunit = ou
     ) %>%
+    # mutate(
+    #   mech_name = str_remove(mechanism, mech_code),
+    #   award_number = str_extract(mech_name, "(?<=-[:space:]).*(?=[:space:]-)"),
+    #   mech_name = str_trim(mech_name),
+    #   mech_name = str_remove(mech_name, "-[:space:].*[:space:]-[:space:]|-[:space:]")
+    # ) %>%
     mutate(
       mech_name = str_remove(mechanism, mech_code),
-      award_number = str_extract(mech_name, "(?<=-[:space:]).*(?=[:space:]-)"),
-      mech_name = str_trim(mech_name),
-      mech_name = str_remove(mech_name, "-[:space:].*[:space:]-[:space:]|-[:space:]")
+      mech_name = str_replace_all(mech_name, "\n", ""),
+      award_number = case_when(
+        str_detect(prime_partner, "^TBD") ~ NA_character_,
+        TRUE ~ str_extract(mech_name, "(?<=-[:space:])[A-Z0-9]+(?=[:space:]-[:space:])")
+      ),
+      mech_name = case_when(
+        !is.na(award_number) ~ str_remove(mech_name, award_number),
+        TRUE ~ mech_name
+      ),
+      mech_name = str_remove(mech_name, paste0("^", rev(sep_chrs), collapse = "|"))
     ) %>%
-    select(uid, mech_code, mech_name, mechanism, everything())
+    select(uid, mech_code, mech_name, award_number, mechanism, everything())
 }
 
 
@@ -1005,27 +1050,31 @@ datim_cntryview <- function() {
 #' @title Datim OU / Countries view
 #'
 #'
-datim_orgview <- function(cntry_code = NULL) {
+datim_orgview <- function(cntry_uid = NULL) {
 
   df_cntries <- datim_cntryview()
 
-  if (is.null(cntry_code)) {
+  if (is.null(cntry_uid)) {
     df_orgview <- df_cntries %>%
       pmap_dfr(~datim_sqlviews(
         view_name = "Data Exchange: Organisation Units",
         dataset = TRUE,
-        query = list("OU" = ..3)
+        vquery = list("OU" = ..3)
       ))
 
     return(df_orgview)
   }
 
-  if (!cntry_code %in% df_cntries$orgunit_code)
-    usethis::ui_stop("ERROR - Invalid country code.")
+  if (!cntry_uid %in% df_cntries$orgunit_uid)
+    usethis::ui_stop("ERROR - Invalid country uid")
+
+  cntry_code <- df_cntries %>%
+    filter(orgunit_uid == cntry_uid) %>%
+    pull(orgunit_code)
 
   datim_sqlviews(
     view_name = "Data Exchange: Organisation Units",
     dataset = TRUE,
-    query = list("OU" = cntry_code)
+    vquery = list("OU" = cntry_code)
   )
 }

@@ -32,7 +32,7 @@
 
   datim_sqlviews()
 
-  datim_sqlviews(view_name = "MER data elements", dataset = T, )
+  datim_sqlviews(view_name = "MER data elements", dataset = T)
   datim_sqlviews(view_name = "MER category option combos", dataset = T)
   datim_sqlviews(view_name = "Data sets", dataset = T)
 
@@ -47,7 +47,7 @@
 
 # DATIM Data Exchange ----
 
-# Org units ----
+  # Org units ----
 
   # Metadata - OU Org Hierarchy with UIDs
   df_outable <- glamr::get_outable(
@@ -154,7 +154,7 @@
                   pkeys = "id",
                   overwrite = T)
 
-# Data Elements ----
+  # Data Elements ----
 
   # DataSets
 
@@ -174,11 +174,14 @@
 
   # Parse out different components
   df_datasets <- df_datasets %>%
-    separate(name, into = c("source", "name"), sep = ": ") %>%
+    separate(name, into = c("source", "name"), sep = ": ") %>% #distinct(source)
     mutate(
       data_type = case_when(
-        str_detect(source, " Targets$|.*Target.*") ~ "Targets",
-        TRUE ~ "Results"),
+        str_detect(source, "[:space:]Targets$|.*Target.*") ~ "Targets",
+        str_detect(source, "[:space:]Results$|.*Result.*") && str_detect(name, "Narravtives", negate = T) ~ "Results",
+        str_detect(source, "[:space:]Results$") && str_detect(name, "Narravtives", negate = F) ~ "Narratives",
+        str_detect(source, "SIMS") ~ "SIMS",
+        TRUE ~ "Other"),
       period = str_extract(name, "(?<=FY).*"),
       period = case_when(
        !is.na(period) ~ paste0("FY", period),
@@ -192,14 +195,15 @@
   # MER Results: Facility Based
   datim_sqlviews(view_name = "Data sets, elements and combos paramaterized",
                  dataset = TRUE,
-                 query = list("dataSets" = "BHlhyPmRTUY"))
+                 vquery = list("dataSets" = "BHlhyPmRTUY"))
 
   datim_sqlviews(view_name = "Data sets, elements and combos paramaterized section forms",
                  dataset = TRUE,
                  query = list("dataSets" = "BHlhyPmRTUY"))
 
-  # Batch / Query all Data Elements
+  # Batch / Query all Data Elements & Category Option Combos
   df_datasets %>%
+    filter(row_number() == 1) %>%
     pmap_dfr(~datim_sqlviews(
                view_name = "Data sets, elements and combos paramaterized",
                dataset = TRUE,
@@ -239,6 +243,7 @@
                     overwrite = T)
 
   # Periods ----
+
   # Periods - Days (yyyyMMdd), Quarters (yyyyQn), Financial Year (yyyyOct)
   datim_sqlviews(view_name = "Period information", dataset = TRUE)
 
