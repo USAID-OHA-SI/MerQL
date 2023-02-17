@@ -92,7 +92,7 @@
   datim_sqlviews(
     view_name = "Data Exchange: Organisation Units",
     dataset = TRUE,
-    query = list("OU" = cntry_code)
+    vquery = list("OU" = cntry_code)
   )
 
   datim_orgview(cntry_code)
@@ -102,7 +102,7 @@
     pmap_dfr(~datim_sqlviews(
       view_name = "Data Exchange: Organisation Units",
       dataset = TRUE,
-      query = list("OU" = ..4)
+      vquery = list("OU" = ..4)
     ))
 
   df_orgs_view %>% glimpse()

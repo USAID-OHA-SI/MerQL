@@ -3,12 +3,13 @@
 ##  PURPOSE: Utility functions
 ##  LICENCE: MIT
 ##  DATE:    2021-10-08
-##  UPDATED: 2022-07-14
+##  UPDATED: 2023-01-26
 
 # Libraries ----
 
   library(tidyverse)
   library(gophr)
+  library(grabr)
   library(glamr)
   library(janitor)
   # library(DBI)
@@ -38,46 +39,361 @@
   #                          archive = TRUE,
   #                          dest_path = dir_merdata)
 
+# DATIM Data Schema ----
+
+  # DIMENSIONS
+  #
+  # WHERE
+  # Org Units
+  # Eg: Clinical Facility, Community Site, or OU Level
+  #
+  # WHAT
+  # Data Elements: Indicators (N|D, DSD|TA|etc, Disaggregate)
+  # Eg: Number of HTC tests for Females 1-4
+  #
+  # WHEN
+  # Reporting Period - Quarter
+  # Eg: 2021 qtr2 or January through March 2021
+  #
+  # WHO
+  # Funding mechanism (attribute option combination)
+  # Eg: USAID funds RISE which is implemented by FHI360
+  #
+  # VALUE (MEASUREMENT)
+  # Value (Targets, Qtr1-4, Cumulative)
+
+# MSD Columns & Data Types ----
+
+  ## SITE x IM Data Structure ----
+  msd_site_str <- list(
+    # WHEN ----
+    "periods" = c(
+      "fiscal_year"
+    ),
+    # WHERE ----
+    "org_units" = c(
+      "orgunituid",                 # ID
+      "sitename",
+      "facilityuid",
+      "facility",
+      "sitetype",
+      "communityuid",
+      "community",
+      "psnuuid",
+      "psnu",
+      "snuprioritization",
+      "typemilitary",
+      "dreams",
+      "snu1",
+      "snu1uid",
+      "countryuid",
+      "country",
+      "operatingunituid",
+      "operatingunit"
+    ),
+    # ----
+    "org_sites" = c(
+      "orgunituid",                 # ID
+      "sitename",
+      "facilityuid",
+      "facility",
+      "sitetype",
+      "typemilitary",
+      "communityuid",
+      "snu1uid",
+      "psnuuid",
+      "countryuid",
+      "operatingunituid"
+    ),
+    # ----
+    "org_comms" = c(
+      "communityuid",
+      "community",
+      "psnuuid"
+    ),
+    # ----
+    "org_psnus" = c(
+      "psnuuid",
+      "psnu",
+      "snuprioritization",
+      "dreams",
+      "snu1uid"
+    ),
+    # ----
+    "org_snu1s" = c(
+      "snu1uid",
+      "snu1",
+      "countryuid"
+    ),
+    # ----
+    "org_countries" = c(
+      "countryuid",
+      "countryiso",
+      "country",
+      "operatingunituid"
+    ),
+    # ----
+    "org_ous" = c(
+      "operatingunituid",
+      "operatingunitiso",
+      "operatingunit"
+    ),
+    # WHAT: DataElements ----
+    "dataelements" = c(
+      "indicator",                  # ID
+      "numeratordenom",             # ID
+      "indicatortype",              # ID
+      "disaggregate",               # ID
+      "standardizeddisaggregate",
+      "dataelement",                # Derived
+      "categoryoptioncomboname",    # ID
+      "ageasentered",
+      "sex",
+      "statushiv",
+      "statustb",
+      "statuscx",
+      "hiv_treatment_status",
+      "otherdisaggregate",
+      "otherdisaggregate_sub",
+      "modality",
+      "source_name"
+    ),
+    # Indicators ----
+    "indicators" = c(
+      "indicator",
+      "numeratordenom",
+      "indicatortype",
+      "disaggregate",
+      "dataelement",                # ID
+      "standardizeddisaggregate",   # ID
+      "modality",
+      "source_name"
+    ),
+    # Category Option Combos (COC) ----
+    "disaggregates" = c(
+      "indicator",
+      "numeratordenom",
+      "indicatortype",
+      "disaggregate",
+      "disaggregate",               # ID
+      "standardizeddisaggregate",   # ID
+      "otherdisaggregate",
+      "otherdisaggregate_sub",
+      "modality",
+      "source_name"
+    ),
+    # AGES ----
+    "age_disaggregates" = c(
+      "fiscal_year",
+      "indicator",
+      "ageasentered",
+      "age_2018",
+      "age_2019",
+      "trendscoarse"
+    ),
+    # COC ----
+    "categoryoptioncombos" = c(
+      "indicator",
+      "numeratordenom",
+      "indicatortype",
+      "categoryoptioncomboname",    # ID
+      "ageasentered",
+      "sex",
+      "statushiv",
+      "statustb",
+      "statuscx",
+      "hiv_treatment_status",
+      "otherdisaggregate",
+      "otherdisaggregate_sub",
+      "source_name"
+    ),
+    # WHO: AttributesOptionsCombo ----
+    "mechanisms" = c(
+      "mech_code",                  # ID
+      "mech_name",
+      "award_number",
+      "prime_partner_name",
+      "prime_partner_duns",
+      "prime_partner_uei",
+      "funding_agency",
+      "operatingunit"
+    ),
+    # Partners ----
+    "mech_partners" = c(
+      "prime_partner_uei",          # ID
+      "prime_partner_duns",         # ID
+      "prime_partner_name"
+    ),
+    # AWARDS ----
+    "mech_awards" = c(
+      "mech_code",                  # ID
+      "mech_name",
+      "award_number",               # ID
+      "prime_partner_uei",
+      "operatingunit",
+      "funding_agency"
+    ),
+    # VALUE ----
+    "values" = c(
+      "targets",
+      "qtr1",
+      "qtr2",
+      "qtr3",
+      "qtr4",
+      "cumulative"
+    ),
+    # OTHER ----
+    "others" = c(),
+    # Slimmed Version of MSD ----
+    # Similar to Flat Files
+    "data" = c(
+      "fiscal_year",    # => Used to reshape reshape / pivot
+      "orgunitunituid", # =>
+      "orgunituid",     # => Join to Org Hierarchy
+      "mech_code",      # => Join to AttributesOptionsCombo tbl
+      "indicator",      # DataElement key
+      "numeratordenom", # DataElement key
+      "indicatortype",  # DataElement key
+      "disaggregate",   # DataElement key
+      "dataelement",
+      "standardizeddisaggregate",
+      "categoryoptioncomboname",
+      "targets",
+      "qtr1",
+      "qtr2",
+      "qtr3",
+      "qtr4",
+      "cumulative"
+    ),
+    # Data Transformed - Long Format ----
+    "data_long" = c(
+      "period",            # => Reshape reshape / pivot
+      "operatingunituid",  # => Link to OU/Countries
+      "orgunituid",        # => Link to Org Hierarchy
+      "mech_code",         # => Link to AOC tbl
+      "dataelement",
+      "standardizeddisaggregate",
+      "categoryoptioncomboname",
+      "value_type",
+      "value"
+    ),
+    # Columns for cleaned version ----
+    "cleaned" = c()
+  )
+
+  # Flatfile => db_output.csv or txt, json, data long
+  # SQL View => hyperfile, data long
+  # SQL View => hyperfile + geospatial (site + psnu + OU/country)
+
+  ## MSD Data Definition ----
+  msd_cols_types <- c(
+    "period"                 = "varchar(6)",    # ID
+    "period_type"            = "varchar(11)",   # ID
+    "orgunituid"             = "varchar(11)",   # ID
+    "sitename"               = "varchar(200)",
+    "facilityuid"            = "varchar(11)",
+    "facility"               = "varchar(200)",
+    "sitetype"               = "varchar(20)", #9
+    "communityuid"           = "varchar(11)",
+    "community"              = "varchar(200)",
+    "psnuuid"                = "varchar(11)",
+    "psnu"                   = "varchar(200)",
+    "snuprioritization"      = "varchar(50)",
+    "snu1uid"                = "varchar(11)",
+    "snu1"                   = "varchar(50)",
+    "typemilitary"           = "char(1)",
+    "dreams"                 = "char(1)",
+    "operatingunit"          = "varchar(32)",
+    "operatingunituid"       = "varchar(11)",
+    "operatingunitiso"       = "char(3)",
+    "country"                = "varchar(50)",
+    "countryuid"             = "varchar(11)",
+    "countryiso"             = "char(3)",
+
+    "mech_code"              = "varchar(50)",              # ID
+    "mech_name"              = "varchar(200)",
+    "award_number"           = "varchar(250)",
+    "prime_partner_name"     = "varchar(200)",
+    "prime_partner_duns"     = "varchar(100)", #30
+    "prime_partner_uei"      = "varchar(100)", #30
+    "funding_agency"         = "varchar(100)", #30
+
+    "indicator"              = "varchar(50)",     # ID
+    "numeratordenom"         = "char(1)",
+    "indicatortype"          = "varchar(20)",    #4
+    "disaggregate"           = "varchar(100)",   #30
+    "standardizeddisaggregate" = "varchar(100)", #30
+    "dataelementuid"           = "varchar(11)",                # ID
+    "dataelement"              = "varchar(100)",
+    "categoryoptioncombouid"   = "varchar(11)",   # ID (Second)
+    "categoryoptioncomboname"  = "varchar(500)",   # ID (Second)
+    "ageasentered"             = "varchar(25)",
+    "age_2018"                 = "varchar(25)",
+    "age_2019"                 = "varchar(25)",
+    "trendscoarse"             = "varchar(25)",
+    "sex"                      = "varchar(11)",   #6
+    "statushiv"                = "varchar(25)",
+    "statustb"                 = "varchar(25)",
+    "statuscx"                 = "varchar(25)",
+    "hiv_treatment_status"     = "varchar(25)",
+    "otherdisaggregate"        = "varchar(500)",
+    "otherdisaggregate_sub"    = "varchar(500)",
+    "modality"                 = "varchar(60)",
+
+    "fiscal_year"              = "char(4)",         # ID - Reshape long and use period as ID
+    "targets"                  = "decimal(36,2)",
+    "qtr1"                     = "decimal(36,2)",
+    "qtr2"                     = "decimal(36,2)",
+    "qtr3"                     = "decimal(36,2)",
+    "qtr4"                     = "decimal(36,2)",
+    "cumulative"               = "decimal(36,2)",
+    "source_name"              = "varchar(60)",
+    "value_type"               = "varchar(7)",
+    "value"                    = "decimal(36,2)"
+  )
+
+
+
 # FUNCTIONS ----
 
   #' @title Pull Data Elements from MSD Dataset
   #'
   msd_orgs <- function(df_msd, level = NULL) {
+
     # Notification
     if (interactive())
       usethis::ui_info("INFO - Extracting Organization Details from MSD ...")
 
-    df_outable <- glamr::get_outable(
+    df_ous <- get_outable(
       username = datim_user(),
       password = datim_pwd())
 
-    df_orgs_sites <- df_msd %>%
-      select(any_of(str_msd_sites$org_units)) %>%
+    df_orgs <- df_msd %>%
+      select(any_of(msd_site_str$org_units)) %>%
       distinct()
 
-    df_orgs_sites <- df_outable %>%
-      select(!ends_with("lvl")) %>%
+    df_orgs <- df_ous %>%
+      select(!ends_with(c("lvl", "iso"))) %>%
       rename_with(~str_replace(., "_", "")) %>%
-      right_join(df_orgs_sites,
-                 by = c("operatingunituid", "operatingunit", "country"))
+      right_join(df_orgs, by = c("operatingunituid", "operatingunit", "country"))
 
-    return(df_orgs_sites)
+    return(df_orgs)
   }
 
   #' @title Pull Mechanisms Details from MSD
   #'
-  msd_mechanisms <- function(df_msd, level = "all") {
+  msd_mechs <- function(df_msd, level = "all") {
     # Notification
     if (interactive())
       usethis::ui_info("INFO - Extracting mechanisms details from MSD ...")
 
-    cols_mech <- str_msd_sites$mechanisms
+    cols_mech <- msd_site_str$mechanisms
 
     if (!all(cols_mech %in% names(df_msd)))
       usethis::ui_stop(glue::glue("ERROR - MSD Table is missing required columns: {paste(cols_fact, collapse=', ')}"))
 
     df_mechs <- df_msd %>%
-      select(one_of(str_msd_sites$mechanisms)) %>%
+      select(one_of(cols_mech)) %>%
       distinct() %>%
       msd_clean_mechs()
 
@@ -92,7 +408,7 @@
   #'
   msd_partners <- function(df_msd) {
     df_msd %>%
-      select(any_of(str_msd_sites$mech_partners)) %>%
+      select(any_of(msd_site_str$mech_partners)) %>%
       distinct()
   }
 
@@ -101,7 +417,7 @@
   #'
   msd_awards <- function(df_msd) {
     df_msd %>%
-      select(any_of(str_msd_sites$mech_awards)) %>%
+      select(any_of(msd_site_str$mech_awards)) %>%
       distinct()
   }
 
@@ -222,23 +538,25 @@
       usethis::ui_info("INFO - Extracting fact table from MSD ...")
 
     # Fact Table Variables
-    cols_fact <- c(
-      "fiscal_year",  # => Used to pivot long
-      "orgunituid",   # => Join to Org Hierarchy
-      "mech_code",    # => Join to Attributes Option Combos - Awards & Partners
-      "indicator",      # DataElement key
-      "numeratordenom", # DataElement key
-      "indicatortype",  # DataElement key
-      "disaggregate",   # DataElement key
-      "standardizeddisaggregate",
-      "categoryoptioncomboname",
-      "targets",
-      "qtr1",
-      "qtr2",
-      "qtr3",
-      "qtr4",
-      "cumulative"
-    )
+    # cols_fact <- c(
+    #   "fiscal_year",  # => Used to pivot long
+    #   "orgunituid",   # => Join to Org Hierarchy
+    #   "mech_code",    # => Join to Attributes Option Combos - Awards & Partners
+    #   "indicator",      # DataElement key
+    #   "numeratordenom", # DataElement key
+    #   "indicatortype",  # DataElement key
+    #   "disaggregate",   # DataElement key
+    #   "standardizeddisaggregate",
+    #   "categoryoptioncomboname",
+    #   "targets",
+    #   "qtr1",
+    #   "qtr2",
+    #   "qtr3",
+    #   "qtr4",
+    #   "cumulative"
+    # )
+
+    cols_fact <- msd_site_str$data[!str_detect(msd_site_str$data, "element")]
 
     if (!all(cols_fact %in% names(df_msd)))
       usethis::ui_stop(glue::glue("ERROR - MSD Table is missing required columns: {paste(cols_fact, collapse=', ')}"))
@@ -280,7 +598,7 @@
       usethis::ui_info("INFO - Reshaping fact table into long format ...")
 
     df_msd %>%
-      pivot_longer(cols = c(starts_with("qtr"), "cumulative", "targets"),
+      pivot_longer(cols = msd_site_str$values,
                    names_to = "value_type",
                    values_to = "value",
                    values_drop_na = T) %>%
@@ -302,7 +620,7 @@
       relocate(period, period_type, .after = fiscal_year)
   }
 
-  #' @title Unpack MSD Dataset
+  #' @title Unpack MSD Into Different Dimension
   #'
   msd_split <- function(df_msd, reshape = FALSE) {
     # Notification
@@ -315,7 +633,7 @@
 
     df$de <- msd_dataelements(df_msd)
 
-    df$mechs <- msd_mechanisms(df_msd)
+    df$mechs <- msd_mechs(df_msd)
 
     df$fact <- msd_fact(df_msd, df_elmts = df$de)
 
@@ -331,10 +649,7 @@
 ## Reference Data sets ----
 
   # Metadata - OU Org Hierarchy with UIDs
-  df_outable <- glamr::get_outable(username = datim_user(), password = datim_pwd())
-
-  # Metadata - OU Org Hierarchy with UIDs
-  df_orglevels <- glamr::get_levels(username = datim_user(), password = datim_pwd())
+  df_orglevels <- grabr::get_levels(username = datim_user(), password = datim_pwd())
 
   # Metadata - Data Elements
   #df_dt_elts <- datim_resources(res_name = "Data Elements", dataset = T)
@@ -373,306 +688,6 @@
       )
     )
 
-# DATIM Data Schema ----
-
-  # DIMENSIONS
-  #
-  # WHERE
-  # Org Units
-  # Eg: Clinical Facility, Community Site, or OU Level
-  #
-  # WHAT
-  # Data Elements: Indicators (N|D, DSD|TA|etc, Disaggregate)
-  # Eg: Number of HTC tests for Females 1-4
-  #
-  # WHEN
-  # Reporting Period - Quarter
-  # Eg: 2021 qtr2 or January through March 2021
-  #
-  # WHO
-  # Funding mechanism (attribute option combination)
-  # Eg: USAID funds RISE which is implemented by FHI360
-  #
-  # VALUE (MEASUREMENT)
-  # Value (Targets, Qtr1-4, Cumulative)
-# COLUMN Data Types ----
-
-  cols_msd_sites <- c(
-    "period"                 = "varchar(6)",    # ID
-    "period_type"            = "varchar(11)",   # ID
-    "orgunituid"             = "varchar(11)",   # ID
-    "sitename"               = "varchar(200)",
-    "facilityuid"            = "varchar(11)",
-    "facility"               = "varchar(200)",
-    "sitetype"               = "varchar(20)", #9
-    "communityuid"           = "varchar(11)",
-    "community"              = "varchar(200)",
-    "psnuuid"                = "varchar(11)",
-    "psnu"                   = "varchar(200)",
-    "snuprioritization"      = "varchar(50)",
-    "snu1uid"                = "varchar(11)",
-    "snu1"                   = "varchar(50)",
-    "typemilitary"           = "char(1)",
-    "dreams"                 = "char(1)",
-    "operatingunit"          = "varchar(32)",
-    "operatingunituid"       = "varchar(11)",
-    "operatingunitiso"       = "char(3)",
-    "country"                = "varchar(50)",
-    "countryuid"             = "varchar(11)",
-    "countryiso"             = "char(3)",
-
-    "mech_code"              = "varchar(50)",              # ID
-    "mech_name"              = "varchar(200)",
-    "award_number"           = "varchar(250)",
-    "prime_partner_name"     = "varchar(200)",
-    "prime_partner_duns"     = "varchar(100)", #30
-    "prime_partner_uei"      = "varchar(100)", #30
-    "funding_agency"         = "varchar(100)", #30
-
-    "indicator"              = "varchar(50)",                # ID
-    "numeratordenom"         = "char(1)",
-    "indicatortype"          = "varchar(20)", #4
-    "disaggregate"           = "varchar(100)", #30
-    "standardizeddisaggregate" = "varchar(100)", #30
-    "dataelementuid"           = "varchar(11)",                # ID
-    "dataelement"              = "varchar(100)",
-    "categoryoptioncombouid"   = "varchar(11)",   # ID (Second)
-    "categoryoptioncomboname"  = "varchar(500)",   # ID (Second)
-    "ageasentered"             = "varchar(25)",
-    "age_2018"                 = "varchar(25)",
-    "age_2019"                 = "varchar(25)",
-    "trendscoarse"             = "varchar(25)",
-    "sex"                      = "varchar(11)", #6
-    "statushiv"                = "varchar(25)",
-    "statustb"                 = "varchar(25)",
-    "statuscx"                 = "varchar(25)",
-    "hiv_treatment_status"     = "varchar(25)",
-    "otherdisaggregate"        = "varchar(500)",
-    "otherdisaggregate_sub"    = "varchar(500)",
-    "modality"                 = "varchar(60)",
-
-    "fiscal_year"              = "char(4)",             # ID - Reshape long and use period as ID
-    "targets"                  = "decimal(36,2)",
-    "qtr1"                     = "decimal(36,2)",
-    "qtr2"                     = "decimal(36,2)",
-    "qtr3"                     = "decimal(36,2)",
-    "qtr4"                     = "decimal(36,2)",
-    "cumulative"               = "decimal(36,2)",
-    "source_name"              = "varchar(60)",
-    "value_type"               = "varchar(7)",
-    "value"                    = "decimal(36,2)"
-  )
-
-
-# SITE x IM Data Structure ----
-
-  str_msd_sites <- list(
-    # WHEN
-    "periods" = c(
-      "fiscal_year"
-    ),
-    # WHERE
-    "org_units" = c(
-      "orgunituid",                 # ID
-      "sitename",
-      "facilityuid",
-      "facility",
-      "sitetype",
-      "communityuid",
-      "community",
-      "psnuuid",
-      "psnu",
-      "snuprioritization",
-      "typemilitary",
-      "dreams",
-      "snu1",
-      "snu1uid",
-      "countryuid",
-      "country",
-      "operatingunituid",
-      "operatingunit"
-    ),
-    "org_sites" = c(
-      "orgunituid",                 # ID
-      "sitename",
-      "facilityuid",
-      "facility",
-      "sitetype",
-      "typemilitary",
-      "communityuid",
-      "snu1uid",
-      "psnuuid",
-      "countryuid",
-      "operatingunituid"
-    ),
-    "org_comms" = c(
-      "communityuid",
-      "community",
-      "psnuuid"
-    ),
-    "org_psnus" = c(
-      "psnuuid",
-      "psnu",
-      "snuprioritization",
-      "dreams",
-      "snu1uid"
-    ),
-    "org_snu1s" = c(
-      "snu1uid",
-      "snu1",
-      "countryuid"
-    ),
-    "org_countries" = c(
-      "countryuid",
-      "countryiso",
-      "country",
-      "operatingunituid"
-    ),
-    "org_ous" = c(
-      "operatingunituid",
-      "operatingunitiso",
-      "operatingunit"
-    ),
-    # WHAT: dataElements
-    "dataelements" = c(
-      "indicator",                  # ID
-      "numeratordenom",             # ID
-      "indicatortype",              # ID
-      "disaggregate",               # ID
-      "standardizeddisaggregate",
-      "dataelement",                # Derived
-      "categoryoptioncomboname",    # ID
-      "ageasentered",
-      "sex",
-      "statushiv",
-      "statustb",
-      "statuscx",
-      "hiv_treatment_status",
-      "otherdisaggregate",
-      "otherdisaggregate_sub",
-      "modality",
-      "source_name"
-    ),
-    "indicators" = c(
-      "indicator",
-      "numeratordenom",
-      "indicatortype",
-      "disaggregate",
-      "dataelement",                # ID
-      "standardizeddisaggregate",   # ID
-      "modality",
-      "source_name"
-    ),
-    # WHAT: CategoryOptionCombos
-    "disaggregates" = c(
-      "indicator",
-      "numeratordenom",
-      "indicatortype",
-      "disaggregate",
-      "disaggregate",               # ID
-      "standardizeddisaggregate",   # ID
-      "otherdisaggregate",
-      "otherdisaggregate_sub",
-      "modality",
-      "source_name"
-    ),
-    # AGES
-    "age_disaggregates" = c(
-      "fiscal_year",
-      "indicator",
-      "ageasentered",
-      "age_2018",
-      "age_2019",
-      "trendscoarse"
-    ),
-    "categoryoptioncombos" = c(
-      "indicator",
-      "numeratordenom",
-      "indicatortype",
-      "categoryoptioncomboname",    # ID
-      "ageasentered",
-      "sex",
-      "statushiv",
-      "statustb",
-      "statuscx",
-      "hiv_treatment_status",
-      "otherdisaggregate",
-      "otherdisaggregate_sub",
-      "source_name"
-    ),
-    # WHO: Mechs - AttributesOptionsCombo
-    "mechanisms" = c(
-      "mech_code",                  # ID
-      "mech_name",
-      "award_number",
-      "prime_partner_name",
-      "prime_partner_duns",
-      "prime_partner_uei",
-      "funding_agency",
-      "operatingunit"
-    ),
-    "mech_partners" = c(
-      "prime_partner_uei",          # ID
-      "prime_partner_duns",         # ID
-      "prime_partner_name"
-    ),
-    "mech_awards" = c(
-      "mech_code",                  # ID
-      "mech_name",
-      "award_number",               # ID
-      "prime_partner_uei",
-      "operatingunit",
-      "funding_agency"
-    ),
-    # VALUE
-    "values" = c(
-      "targets",
-      "qtr1",
-      "qtr2",
-      "qtr3",
-      "qtr4",
-      "cumulative"
-    ),
-    # OTHER
-    "others" = c(),
-    # Slimmed Version of MSD,
-    # Similar to Flat Files exported from EMRs
-    "data" = c(
-      "fiscal_year",  # => Used to reshape reshape / pivot
-      "orgunituid",   # => Join to Org Hierarchy
-      "mech_code",    # => Join to AttributesOptionsCombo tbl
-      "indicator",
-      "numeratordenom", # DataElement key
-      "indicatortype",  # DataElement key
-      "disaggregate",   # DataElement key
-      "dataelement",
-      "standardizeddisaggregate",
-      "categoryoptioncomboname",
-      "targets",
-      "qtr1",
-      "qtr2",
-      "qtr3",
-      "qtr4",
-      "cumulative"
-    ),
-    "data_long" = c(
-      "period",       # => Used to reshape reshape / pivot
-      "orgunituid",   # => Join to Org Hierarchy
-      "mech_code",    # => Join to AttributesOptionsCombo tbl
-      "dataelement",
-      "standardizeddisaggregate",
-      "categoryoptioncomboname",
-      "value_type",
-      "value"
-    ),
-    # Columns for cleaned version
-    "cleaned" = c()
-  )
-
-# Flatfile => db_output.csv or txt, json, data long
-# SQL View => hyperfile, data long
-# SQL View => hyperfile + geospatial (site + psnu + OU/country)
-
 # NORMALISE ----
 
   ## Org Hierarchy ----
@@ -692,6 +707,11 @@
   df_orgs_sites <- df_sites %>%
     select(any_of(str_msd_sites$org_units)) %>%
     distinct()
+
+  df_msd <- df_sites %>%
+    msd_split()
+
+  df_msd$
 
   df_orgs_sites <- df_outable %>%
     select(!ends_with("lvl")) %>%

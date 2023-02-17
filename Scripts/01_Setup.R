@@ -10,23 +10,27 @@ library(DBI)
 
 source("Scripts/00_Utilities.R")
 
-## DB Paths
+# Params
+
+dir_data <- "./Data"
+
 cntry <- "Nigeria"
 
-db_sqlite <- cntry %>% paste0("_msd_sitexim.db")
+msd_type <- "sitexim"
 
-## Set Postgres DBMS Access
-## 1 time set up
+## SQLite DB Path
 
-# set_key(service = "ghservey", "ghserver-hostname")
-# set_key(service = "ghservey", "username")
-# set_key(service = "ghservey", "password")
+db_sqlite <- cntry %>%
+  tolower() %>%
+  paste0("_msd_", msd_type, ".db")
 
-set_key(service = pg_service("local"), "host")
-set_key(service = pg_service("local"), "port")
-set_key(service = pg_service("local"), "database")
-set_key(service = pg_service("local"), "username")
-set_key(service = pg_service("local"), "password")
+## Set Postgres DBMS Access - 1 time set up
+
+# set_key(service = pg_service("local"), "host")
+# set_key(service = pg_service("local"), "port")
+# set_key(service = pg_service("local"), "database")
+# set_key(service = pg_service("local"), "username")
+# set_key(service = pg_service("local"), "password")
 
 ## Test Postgres DBMS Access
 
@@ -48,35 +52,35 @@ pg_pwd()
 
 ## List odbc DB Connection drivers
 
-#sort(unique(odbc::odbcListDrivers()[[1]]))
+db_drivers <- sort(unique(odbc::odbcListDrivers()$name))
+
+db_drivers[which(stringr::str_detect(tolower(db_drivers), "postgres"))]
 
 # Test SQLite Connection
 # Note: The SQLite DB file will be created if it does not already exist
 
-slite_conn <- db_connection(db_name = db_sqlite)
+slite_conn <- db_sqlite %>%
+  file.path(dir_data, .) %>%
+  db_connection(db_name = .)
 
 slite_conn
 
 RSQLite::dbDisconnect(slite_conn)
 
+slite_conn
+
 # Test Postgres Connection
 # Note: driver RPostgres::Postgres() #=> works better vs RPostgreSQL::PostgreSQL()
 
-# conn <- db_connection(db_name = "postgres")
-
 conn <- db_connection(db_name = pg_database())
 
-conn
-
-# Get connection info
+# Get detailled connection info
 DBI::dbGetInfo(conn)
 
-str(conn)
-
-# Get db name from connecion instance
+# Get db name from the connecion instance
 db_name(conn)
 
-# List databases
+# Get the list databases
 db_list(conn)
 
 # List schemas
@@ -94,16 +98,54 @@ db_tables(conn, schema = "datim", details = T)
 
 db_tables(conn, schema = "test", details = T)
 
-## Create Database
-sql_cmd_1a <- "CREATE DATABASE test;"
+## Create Database with SQL Statement
+sql_cmd_1a <- "CREATE DATABASE test123;"
 
+DBI::dbExecute(conn, sql_cmd_1a)
+
+db_list(conn)
+
+## Create Database with Parametric SQL Statement
 sql_cmd_1b <- "
   CREATE DATABASE $1 WITH
     OWNER = $2;
 "
 
-DBI::dbExecute(conn, sql_cmd_1a)
-DBI::dbExecute(conn, sql_cmd_1b, params = list(str_to_lower(cntry), pg_user()))
+sql_cmd_1c <- "
+  CREATE DATABASE ? WITH
+    OWNER = ?;
+"
+
+sql_cmd_1d <- "
+  CREATE DATABASE ?name WITH
+    OWNER = ?owner;
+"
+
+DBI::sqlInterpolate(ANSI(), sql_cmd_1c, "msd", pg_user())
+
+DBI::sqlInterpolate(conn, sql_cmd_1d,
+                    .dots = list(name = "msd", owner = pg_user()))
+
+DBI::dbExecute(conn, sql_cmd_1b, params = list("msd", pg_user()))
+
+DBI::dbExecute(conn, sql_cmd_1c, params = list("msd", pg_user()))
+DBI::dbExecute(conn,
+               DBI::sqlInterpolate(ANSI(), sql_cmd_1c, "msd", pg_user()))
+
+db_new <- "sims"
+db_owner <- pg_user()
+db_stmt <- glue::glue_sql(
+  "CREATE DATABASE {`db_new`} WITH OWNER = {`db_owner`};",
+  .con = conn)
+
+DBI::dbExecute(conn, db_stmt)
+
+#DBI::dbExecute(conn, sql_cmd_1d, params = list(name = "msd", owner = pg_user()))
+
+#DBI::dbExecute(conn, sql_cmd_1b, params = list(str_to_lower(cntry), pg_user()))
+
+db_create(name = "fsd", conn)
+db_create(name = "hrhd", conn, pg_user())
 
 ## Create Schema
 sql_cmd_schema_1a <- "

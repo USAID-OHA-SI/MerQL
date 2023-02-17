@@ -52,7 +52,7 @@ check_key <- function(service, name) {
 #'
 get_services <- function() {
   keys <- keyring::key_list()
-  keys$service
+  unique(keys$service)
 }
 
 #' @title Get Service Keys
@@ -63,43 +63,54 @@ get_keys <- function(service) {
   keys[keys$service == service,]$username
 }
 
-#' @title Get Account Details
-get_account <- function(svc, key){
-
+#' @title Get Service
+#'
+#' @param name Service name of the account
+#'
+get_account <- function(name) {
   package_check('keyring')
 
-  if(!is_stored(svc)) {
+  if(!glamr::is_stored(name)) {
 
     if(!interactive())
-      ui_stop("NO DATIM credentials stored. Setup using {ui_code('set_datim()')}")
-
-    # Offer to capture info from console
-    resp <- readline(prompt = "Enter Datim Account Username:")
-
-    # Check response
-    if (resp == ""){
-      base::stop("NO {service}/{key} value detected. Set info with {ui_code('set_key()')}")
-    }
-
-    # Confirm reception
-    base::message("DATIM credentials received.")
-
-    # Offer to store info
-    store <- readline(prompt = "Do you want to store your response for future use? [Y/n]")
-
-    # Store info only if user agreed
-    if (store == "Y") {
-      set_key(svc, key)
-      base::print("Response stored on your system")
-    }
-
-    return(resp)
+      ui_stop("No {name} record found. Create a new account using {ui_code('set_key()')}")
   }
 
-  if(!is.loaded(account))
-    suppressMessages(load_secrets())
+  accnt <- keyring::key_list(name)
 
-  keyring::key_list(svc)[1,2]
+  accnt %>%
+    pull(username) %>%
+    map(function(username) {
+      get_key(service = name, name = username)
+    }) %>%
+    set_names(accnt$username) %>%
+    invisible()
+}
+
+#' @title Get Service
+#'
+#' @param name    Service name of the account
+#' @param ...     list of account keys
+#' @param update  Should an existing account be overwriten
+#'
+set_account <- function(name, ...,
+                        update = FALSE) {
+  package_check('keyring')
+
+  if(glamr::is_stored(name) & !update) {
+    usethis::ui_stop("{name} exists already. Set update to TRUE to overwrite")
+  }
+
+  keys <- list(...)
+
+  if (length(keys) == 0) {
+    usethis::ui_stop("No account keys detected. Add a list of keys to the call")
+  }
+
+  keys %>%
+    walk(function(key){
+      set_key(service = name, name = key)
+    })
 }
 
 
@@ -225,8 +236,9 @@ db_name <- function(conn) {
 #'
 #' @description TODO - Switch to a new database
 #'
-db_connect <- function(conn, db_name = NULL) {
-
+db_connect <- function(name, conn) {
+  DBI::dbGetInfo(conn)$dbname <- name
+  return(name)
 }
 
 
@@ -303,8 +315,8 @@ db_schema <- function(conn, name) {
       DBI::dbSendQuery(conn, sql_cmd)
     },
     error = function(err) {
-      usethis::ui_stop("ERROR")
       print(err)
+      usethis::ui_stop("ERROR")
     }
   )
 }
@@ -351,7 +363,6 @@ db_tables <- function(conn,
 
   return(tbls)
 }
-
 
 #' @title Check if table exists
 #'
@@ -553,9 +564,45 @@ db_drop_table <- function(tbl_name, conn = NULL) {
   }
 }
 
-#' @title
+#' @title Create a new Database
 #'
-db_define <- function() {}
+#' @param name
+#' @param conn
+#' @param owner
+#'
+db_create <- function(name,
+                      conn = NULL,
+                      owner = NULL) {
+  # DB Connection
+  if (is.null(conn))
+    conn = db_connection()
+
+  # Exclude SQLite/File based database
+  if (stringr::str_detect(db_name(conn), ".db$|.sqlite$"))
+    usethis::ui_stop("Invalid Input - File based connection do not support multiple databases")
+
+  # Build query
+  query <- glue::glue_sql("CREATE DATABASE {`name`}", .con = conn)
+
+  if (!is.null(owner))
+    query <- glue::glue_sql("CREATE DATABASE {`name`} WITH OWNER = {`owner`};",
+                            .con = conn)
+
+  # Execute query statement
+  res <- tryCatch(
+    expr = {DBI::dbExecute(conn, query)},
+    warning = function(w){
+      usethis::ui_warn("SQL warning: {query}")
+      print(w)
+    },
+    error = function(e){
+      usethis::ui_oops("SQL error: {query}")
+      stop(e)
+    }
+  )
+
+  return(res)
+}
 
 #' @title
 db_munge <- function() {}
@@ -569,9 +616,10 @@ db_control <- function() {}
 #' @title
 #'
 find_pkeys <- function(.df, colnames = FALSE) {
+
   combos <- .df %>%
-    names() %>%
-    accumulate(c)
+    base::names() %>%
+    purrr::accumulate(c)
 
   checks <- combos %>%
     map(syms) %>%
@@ -612,7 +660,6 @@ host_ping <- function(base_url) {
 host_is_online <- function(base_url){
   pingr::is_online(base_url)
 }
-
 
 #' @title Clean Datim Modalities
 #'
@@ -752,12 +799,13 @@ datim_dataements <- function() {
 #' @title Get Datim Data Elements SQLView
 #' @note: TODO: Replace datasetuid with datasetname
 #'
-datim_deview <- function(datasetuid) {
+datim_deview <- function(datasetuid, base_url = NULL) {
 
   df_deview <- datim_sqlviews(
     view_name = "Data sets, elements and combos paramaterized",
     dataset = TRUE,
-    vquery = list("dataSets" = datasetuid))
+    vquery = list("dataSets" = datasetuid),
+    base_url = base_url)
 
   df_deview %>%
     separate(dataset,
@@ -811,16 +859,12 @@ datim_sqlviews <- function(view_name = NULL,
                            datauid = NULL,
                            vquery = NULL,
                            fquery = NULL,
-                           username = NULL,
-                           password = NULL,
+                           username,
+                           password,
                            base_url = NULL) {
 
   # Datim credentials
-  if (missing(username))
-    username <- glamr::datim_user()
-
-  if (missing(password))
-    password <- glamr::datim_pwd()
+  accnt <- lazy_secrets("datim", username, password)
 
   # Base url
   if (missing(base_url))
@@ -836,7 +880,11 @@ datim_sqlviews <- function(view_name = NULL,
 
   # Query data
   data <- api_url %>%
-    grabr::datim_execute_query(username, password, flatten = TRUE) %>%
+    grabr::datim_execute_query(
+      username = accnt$username,
+      password = accnt$password,
+      flatten = TRUE
+    ) %>%
     purrr::pluck("sqlViews") %>%
     tibble::as_tibble() %>%
     dplyr::rename(uid = id, name = displayName)
@@ -878,7 +926,6 @@ datim_sqlviews <- function(view_name = NULL,
 
     dta_url <- base_url %>%
       paste0(end_point, dta_uid, "/data", options, "&fields=*") #:identifiable, :nameable
-
 
     # apply variable query if needed
     if (!is.null(vquery)) {
@@ -973,7 +1020,7 @@ datim_mechview <- function(query = NULL) {
   df_mechview <- datim_sqlviews(
     view_name = "Mechanisms partners agencies OUS Start End",
     dataset = TRUE,
-    fquery = query)
+    query = query)
 
   # Reshape Results - mech code, award number, and name separations chars
   sep_chrs <- c("[[:space:]]+",
@@ -1025,11 +1072,12 @@ datim_mechview <- function(query = NULL) {
 #' @title Datim OU/Partners SQLView
 #'
 #'
-datim_ppview <- function() {
+datim_ppview <- function(base_url = NULL) {
 
   df_ppview <- datim_sqlviews(
     view_name = "Country, Partner, Agencies",
-    dataset = TRUE)
+    dataset = TRUE,
+    base_url = base_url)
 
   df_ppview %>%
     rename(
@@ -1042,24 +1090,28 @@ datim_ppview <- function() {
 #' @title Datim OU / Countries view
 #'
 #'
-datim_cntryview <- function() {
-  datim_sqlviews(view_name = "OU countries", dataset = TRUE)
+datim_cntryview <- function(base_url = NULL) {
+  datim_sqlviews(
+    view_name = "OU countries",
+    dataset = TRUE,
+    base_url = base_url)
 }
 
 
 #' @title Datim OU / Countries view
 #'
 #'
-datim_orgview <- function(cntry_uid = NULL) {
+datim_orgview <- function(cntry_uid = NULL, base_url) {
 
-  df_cntries <- datim_cntryview()
+  df_cntries <- datim_cntryview(base_url = base_url)
 
   if (is.null(cntry_uid)) {
     df_orgview <- df_cntries %>%
       pmap_dfr(~datim_sqlviews(
         view_name = "Data Exchange: Organisation Units",
         dataset = TRUE,
-        vquery = list("OU" = ..3)
+        vquery = list("OU" = ..3),
+        base_url = base_url
       ))
 
     return(df_orgview)
@@ -1075,6 +1127,7 @@ datim_orgview <- function(cntry_uid = NULL) {
   datim_sqlviews(
     view_name = "Data Exchange: Organisation Units",
     dataset = TRUE,
-    vquery = list("OU" = cntry_code)
+    vquery = list("OU" = cntry_code),
+    base_url = base_url
   )
 }
