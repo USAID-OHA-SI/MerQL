@@ -93,23 +93,23 @@ get_account <- function(name) {
 #' @param ...     list of account keys
 #' @param update  Should an existing account be overwriten
 #'
-set_account <- function(name, ...,
+set_account <- function(name,
+                        keys = c("username", "password"),
                         update = FALSE) {
+
   package_check('keyring')
 
-  if(glamr::is_stored(name) & !update) {
-    usethis::ui_stop("{name} exists already. Set update to TRUE to overwrite")
+  # Keyring Service
+  srv <- name
+
+  if(glamr::is_stored(srv) & !update) {
+    usethis::ui_stop("{srv} exists already. Set update to TRUE to overwrite")
   }
 
-  keys <- list(...)
-
-  if (length(keys) == 0) {
-    usethis::ui_stop("No account keys detected. Add a list of keys to the call")
-  }
-
+  # Prompt user to set value for account keys
   keys %>%
     walk(function(key){
-      set_key(service = name, name = key)
+      set_key(service = srv, name = key)
     })
 }
 
