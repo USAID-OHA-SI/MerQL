@@ -1,5 +1,13 @@
 library(magrittr)
 
+#' @title Check host availability
+#'
+#' @param host Hostname
+#'
+check_host <- function(host) {
+  pingr::is_online(host)
+}
+
 #' @title Set a key
 #'
 #' @param service Name of the service
@@ -57,6 +65,7 @@ get_services <- function() {
 
 #' @title Get Service Keys
 #'
+#' @param service Account Service name
 #'
 get_keys <- function(service) {
   keys <- keyring::key_list()
@@ -90,7 +99,7 @@ get_account <- function(name) {
 #' @title Get Service
 #'
 #' @param name    Service name of the account
-#' @param ...     list of account keys
+#' @param keys    List of account key names
 #' @param update  Should an existing account be overwriten
 #'
 set_account <- function(name,
@@ -210,6 +219,13 @@ db_connection <- function(db_driver = RPostgres::Postgres(),
 
   if (str_detect(db_name, ".*[.]db$|.*[.]sqlite$|.*[.]sqlite3$")) {
     conn <- RSQLite::dbConnect(RSQLite::SQLite(), db_name)
+  } else if("MySQLDriver" %in% class(db_driver)) {
+    conn <- RMySQL::dbConnect(db_driver,
+                              host = db_host,
+                              port = db_port,
+                              dbname = db_name,
+                              user = db_user,
+                              password = db_pwd)
   } else {
     conn <- pg_connection(db_driver, db_host, db_port, db_name, db_user, db_pwd)
   }
@@ -854,13 +870,12 @@ datim_data_elementsss <- function(username = NULL,
 
 #' @title Datim SQLViews
 #'
-datim_sqlviews <- function(view_name = NULL,
+datim_sqlviews <- function(username,
+                           password,
+                           view_name = NULL,
                            dataset = FALSE,
                            datauid = NULL,
-                           vquery = NULL,
-                           fquery = NULL,
-                           username,
-                           password,
+                           query = NULL,
                            base_url = NULL) {
 
   # Datim credentials
@@ -879,12 +894,26 @@ datim_sqlviews <- function(view_name = NULL,
   api_url <- base_url %>% paste0(end_point, options)
 
   # Query data
-  data <- api_url %>%
-    grabr::datim_execute_query(
-      username = accnt$username,
-      password = accnt$password,
-      flatten = TRUE
-    ) %>%
+  data <- tryCatch(
+    {
+      api_url %>%
+        grabr::datim_execute_query(
+          username = accnt$username,
+          password = accnt$password,
+          flatten = TRUE
+        )
+    },
+    error = function(err) {
+      message(err)
+      usethis::ui_stop("ERROR - Unable to excute datim query")
+    },
+    warning = function(warn) {
+      message(warn)
+    }
+  )
+
+  # Extract SQLview
+  data <- data %>%
     purrr::pluck("sqlViews") %>%
     tibble::as_tibble() %>%
     dplyr::rename(uid = id, name = displayName)
@@ -896,9 +925,6 @@ datim_sqlviews <- function(view_name = NULL,
 
     data <- data %>%
       dplyr::filter(stringr::str_to_lower(name) == str_to_lower(view_name))
-    # dplyr::filter(
-    #   str_detect(stringr::str_to_lower(name),
-    #     base::paste0("^", str_to_lower(view_name))))
   }
 
   # Number of rows
@@ -928,26 +954,37 @@ datim_sqlviews <- function(view_name = NULL,
       paste0(end_point, dta_uid, "/data", options, "&fields=*") #:identifiable, :nameable
 
     # apply variable query if needed
-    if (!is.null(vquery)) {
-      v <- names(vquery) %>%
-        map_chr(~paste0(.x, ":", vquery[.x])) %>%
+    if (!is.null(query)) {
+      q <- names(query$params) %>%
+        map_chr(~paste0(.x, "=", query$params[.x])) %>%
         paste0(collapse = "&") %>%
-        paste0("&var=", .)
+        paste0("QUERY PARAMS: type=", query$type, "&", .)
 
-      print(glue::glue("SQL View variable query: {v}"))
+      print(print(glue::glue("SQL View Params: {q}")))
 
-      dta_url <- dta_url %>% paste0(v)
-    }
-    # apply field query if needed
-    if (!is.null(fquery)) {
-      q <- names(fquery) %>%
-        map_chr(~paste0(.x, ":eq:", fquery[.x])) %>%
-        paste0(collapse = "&") %>%
-        paste0("&filter=", .)
+      if (query$type == "variable") {
+        vq <- names(query$params) %>%
+          map_chr(~paste0(.x, ":", query$params[.x])) %>%
+          paste0(collapse = "&") %>%
+          paste0("&var=", .)
 
-      print(glue::glue("SQL View field query: {q}"))
+        print(glue::glue("SQL View variable query: {vq}"))
 
-      dta_url <- dta_url %>% paste0(q)
+        dta_url <- dta_url %>% paste0(vq)
+
+      } else if (query$type == "field") {
+        fq <- names(query$params) %>%
+          map_chr(~paste0("filter=", .x, ":eq:", query$params[.x])) %>%
+          paste0(collapse = "&") %>%
+          paste0("&", .)
+
+        print(glue::glue("SQL View field query: {fq}"))
+
+        dta_url <- dta_url %>% paste0(fq)
+      }
+      else {
+        print(glue::glue("Error - Invalid query type: {query$type}"))
+      }
     }
 
     print(glue::glue("SQL View url: {dta_url}"))
@@ -988,11 +1025,15 @@ datim_sqlviews <- function(view_name = NULL,
 #' @title Datim Period Information SQLView
 #
 #
-datim_peview <- function() {
+datim_peview <- function(username, password,
+                         base_url = NULL) {
 
   df_peview <- datim_sqlviews(
+    username = username,
+    password = password,
     view_name = "Period information",
-    dataset = TRUE)
+    dataset = TRUE,
+    base_url = base_url)
 
   df_peview %>%
     mutate(
@@ -1014,13 +1055,18 @@ datim_peview <- function() {
 #' @title Datim Mechanism SQLView
 #'
 #'
-datim_mechview <- function(query = NULL) {
+datim_mechview <- function(username, password,
+                           query = NULL,
+                           base_url = NULL) {
 
   # Extract OU Mechs
   df_mechview <- datim_sqlviews(
+    username = username,
+    password = password,
     view_name = "Mechanisms partners agencies OUS Start End",
     dataset = TRUE,
-    query = query)
+    query = query,
+    base_url = base_url)
 
   # Reshape Results - mech code, award number, and name separations chars
   sep_chrs <- c("[[:space:]]+",
@@ -1072,11 +1118,16 @@ datim_mechview <- function(query = NULL) {
 #' @title Datim OU/Partners SQLView
 #'
 #'
-datim_ppview <- function(base_url = NULL) {
+datim_ppview <- function(username, password,
+                         query = NULL,
+                         base_url = NULL) {
 
   df_ppview <- datim_sqlviews(
+    username = username,
+    password = password,
     view_name = "Country, Partner, Agencies",
     dataset = TRUE,
+    query = query,
     base_url = base_url)
 
   df_ppview %>%
@@ -1090,10 +1141,15 @@ datim_ppview <- function(base_url = NULL) {
 #' @title Datim OU / Countries view
 #'
 #'
-datim_cntryview <- function(base_url = NULL) {
+datim_cntryview <- function(username, password,
+                            query = NULL,
+                            base_url = NULL) {
   datim_sqlviews(
+    username = username,
+    password = password,
     view_name = "OU countries",
     dataset = TRUE,
+    query = query,
     base_url = base_url)
 }
 
@@ -1101,16 +1157,25 @@ datim_cntryview <- function(base_url = NULL) {
 #' @title Datim OU / Countries view
 #'
 #'
-datim_orgview <- function(cntry_uid = NULL, base_url) {
+datim_orgview <- function(username, password,
+                          query = NULL,
+                          cntry_uid = NULL,
+                          base_url) {
 
-  df_cntries <- datim_cntryview(base_url = base_url)
+  df_cntries <- datim_cntryview(
+    username = username,
+    password = password,
+    base_url = base_url
+  )
 
   if (is.null(cntry_uid)) {
     df_orgview <- df_cntries %>%
       pmap_dfr(~datim_sqlviews(
+        username = username,
+        password = password,
         view_name = "Data Exchange: Organisation Units",
         dataset = TRUE,
-        vquery = list("OU" = ..3),
+        query = list("OU" = ..3),
         base_url = base_url
       ))
 

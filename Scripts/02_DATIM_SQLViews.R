@@ -19,6 +19,9 @@
 
 # GLOBALS ----
 
+  # Datim Account
+  dtm <- lazy_secrets("datim")
+
   # DB Connection
   conn <- db_connection(db_name = pg_database())
 
@@ -46,6 +49,8 @@
 
 
 # DATIM Data Exchange ----
+
+  datim_cntryview(dtm$username, dtm$password)
 
   # Org units ----
 

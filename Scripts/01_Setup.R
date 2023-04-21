@@ -2,6 +2,7 @@
 
 #install.packages("DBI")
 #install.packages("odbc")
+#install.packages("RMySQL")
 
 library(tidyverse)
 library(glamr)
