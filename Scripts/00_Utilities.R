@@ -815,13 +815,22 @@ datim_dataements <- function() {
 #' @title Get Datim Data Elements SQLView
 #' @note: TODO: Replace datasetuid with datasetname
 #'
-datim_deview <- function(datasetuid, base_url = NULL) {
+datim_deview <- function(username,
+                         password,
+                         datasetuid,
+                         base_url = NULL) {
 
   df_deview <- datim_sqlviews(
+    username = username,
+    password = password,
     view_name = "Data sets, elements and combos paramaterized",
     dataset = TRUE,
-    vquery = list("dataSets" = datasetuid),
-    base_url = base_url)
+    query = list(
+      type = "variable",
+      params = list("dataSets" = datasetuid)
+    ),
+    base_url = base_url
+  )
 
   df_deview %>%
     separate(dataset,
@@ -879,10 +888,10 @@ datim_sqlviews <- function(username,
                            base_url = NULL) {
 
   # Datim credentials
-  accnt <- lazy_secrets("datim", username, password)
+  accnt <- grabr::lazy_secrets("datim", username, password)
 
   # Base url
-  if (missing(base_url))
+  if (missing(base_url) | is.null(base_url))
     base_url <- "https://final.datim.org"
 
   # Other Options
@@ -915,16 +924,25 @@ datim_sqlviews <- function(username,
   # Extract SQLview
   data <- data %>%
     purrr::pluck("sqlViews") %>%
-    tibble::as_tibble() %>%
-    dplyr::rename(uid = id, name = displayName)
+    tibble::as_tibble()
+
+  if ("id" %in% names(data)) {
+    data <- data %>%
+      dplyr::rename(uid = id)
+  }
+
+  if ("displayName" %in% names(data)) {
+    data <- data %>%
+      dplyr::rename(name = displayName)
+  }
 
   # Filter if needed
-  if (!base::is.null(view_name)) {
+  if (!base::is.null(view_name) & "name" %in% names(data)) {
 
     print(glue::glue("Searching for SQL View: {view_name} ..."))
 
     data <- data %>%
-      dplyr::filter(stringr::str_to_lower(name) == str_to_lower(view_name))
+      dplyr::filter(stringr::str_to_lower(name) == stringr::str_to_lower(view_name))
   }
 
   # Number of rows
@@ -1059,6 +1077,9 @@ datim_mechview <- function(username, password,
                            query = NULL,
                            base_url = NULL) {
 
+  # Base url
+  if (missing(base_url)) base_url <- "https://final.datim.org"
+
   # Extract OU Mechs
   df_mechview <- datim_sqlviews(
     username = username,
@@ -1160,7 +1181,7 @@ datim_cntryview <- function(username, password,
 datim_orgview <- function(username, password,
                           query = NULL,
                           cntry_uid = NULL,
-                          base_url) {
+                          base_url = NULL) {
 
   df_cntries <- datim_cntryview(
     username = username,
@@ -1175,7 +1196,10 @@ datim_orgview <- function(username, password,
         password = password,
         view_name = "Data Exchange: Organisation Units",
         dataset = TRUE,
-        query = list("OU" = ..3),
+        query = list(
+          type = "variable",
+          params = list("OU" = ..3)
+        ),
         base_url = base_url
       ))
 
@@ -1190,9 +1214,14 @@ datim_orgview <- function(username, password,
     pull(orgunit_code)
 
   datim_sqlviews(
+    username = username,
+    password = password,
     view_name = "Data Exchange: Organisation Units",
     dataset = TRUE,
-    vquery = list("OU" = cntry_code),
+    query = list(
+      type = "variable",
+      params = list("OU" = cntry_code)
+    ),
     base_url = base_url
   )
 }
