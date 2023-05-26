@@ -123,6 +123,22 @@ set_account <- function(name,
 }
 
 
+#' @title DB Environment
+#'
+#' @param env Name of DB Environment to be used as service
+#' @param db  Name of the RDBMS
+#'
+db_service <- function(env = "local", db = "postgres") {
+
+  if (!stringr::str_to_lower(db) %in% c("postgres", "mysql", "mssql", "oracle")) {
+
+    return(NULL)
+  }
+
+  base::paste0(env, "-", stringr::str_to_lower(db))
+}
+
+
 #' @title Postgres Environment
 #'
 #' @param env Name of environment service
@@ -131,6 +147,25 @@ pg_service <- function(env = "local") {
   base::paste0(env, "-postgres")
 }
 
+
+#' @title MySQL Environment
+#'
+#' @param env Name of environment service
+#'
+ms_service <- function(env = "local") {
+  base::paste0(env, "-mysql")
+}
+
+
+#' @title Database's host name
+#'
+#' @param env Name of the environment, default set to local
+#' @param db  Name of the RDBMS
+#'
+db_host <- function(env = "local", db = "postgres") {
+  svc <- db_service(env, db)
+  get_key(service = svc, name = "host")
+}
 
 #' @title Postgres Database's host
 #'
@@ -141,8 +176,29 @@ pg_host <- function(env = "local") {
   get_key(service = svc, name = "host")
 }
 
+#' @title MySQL Database's host
+#'
+#' @param env Name of the environment, default set to local
+#'
+ms_host <- function(env = "local") {
+  svc <- ms_service(env)
+  get_key(service = svc, name = "host")
+}
+
+#' @title Database's port
+#'
+#' @param env Name of the environment, default set to local
+#' @param db  Name of the RDBMS
+#'
+db_port <- function(env = "local", db = "postgres") {
+  svc <- db_service(env, db)
+  get_key(service = svc, name = "port")
+}
+
 
 #' @title Postgres Database's port
+#'
+#' @param env Name of the environment, default set to local
 #'
 pg_port <- function(env = "local") {
   svc <- pg_service(env)
@@ -150,26 +206,118 @@ pg_port <- function(env = "local") {
 }
 
 
+#' @title MySQL Database's port
+#'
+#' @param env Name of the environment, default set to local
+#' @param db  Name of RDBMS
+#'
+db_port <- function(env = "local", db = "postgres") {
+  svc <- db_service(env, db)
+  get_key(service = svc, name = "port")
+}
+
+#' @title MySQL Database's port
+#'
+#' @param env Name of the environment, default set to local
+#'
+ms_port <- function(env = "local") {
+  svc <- ms_service(env)
+  get_key(service = svc, name = "port")
+}
+
+#' @title MySQL Database's port
+#'
+#' @param env Name of the environment, default set to local
+#'
+ms_port <- function(env = "local") {
+  svc <- ms_service(env)
+  get_key(service = svc, name = "port")
+}
+
+
+#' @title Database's name
+#'
+#' @param env Name of the environment, default set to local
+#' @param db  Name of RDBMS
+#'
+db_database <- function(env = "local", db = "postgres") {
+  svc <- db_service(env, db)
+  get_key(service = svc, name = "database")
+}
+
 #' @title Postgres Database's name
+#'
+#' @param env Name of the environment, default set to local
 #'
 pg_database <- function(env = "local") {
   svc <- pg_service(env)
   get_key(service = svc, name = "database")
 }
 
+#' @title MySQL Database name
+#'
+#' @param env Name of the environment, default set to local
+#'
+ms_database <- function(env = "local") {
+  svc <- ms_service(env)
+  get_key(service = svc, name = "database")
+}
+
 
 #' @title Postgres user's name
+#'
+#' @param env Name of the environment, default set to local
+#' @param db  Name of RDBMS
+#'
+db_user <- function(env = "local", db = "postgres") {
+  svc <- db_service(env)
+  get_key(service = svc, name = "username")
+}
+
+#' @title Postgres user's name
+#'
+#' @param env Name of the environment, default set to local
 #'
 pg_user <- function(env = "local") {
   svc <- pg_service(env)
   get_key(service = svc, name = "username")
 }
 
+#' @title MySQL username
+#'
+#' @param env Name of the environment, default set to local
+#'
+ms_user <- function(env = "local") {
+  svc <- ms_service(env)
+  get_key(service = svc, name = "username")
+}
+
+
+#' @title User password
+#'
+#' @param env Name of the environment, default set to local
+#' @param db  Name of RDBMS
+#'
+db_pwd <- function(env = "local", db = "postgres") {
+  svc <- db_service(env, db)
+  get_key(service = svc, name = "password")
+}
 
 #' @title Postgres user's password
 #'
+#' @param env Name of the environment, default set to local
+#'
 pg_pwd <- function(env = "local") {
   svc <- pg_service(env)
+  get_key(service = svc, name = "password")
+}
+
+#' @title MySQL user's password
+#'
+#' @param env Name of the environment, default set to local
+#'
+ms_pwd <- function(env = "local") {
+  svc <- ms_service(env)
   get_key(service = svc, name = "password")
 }
 
@@ -177,7 +325,7 @@ pg_pwd <- function(env = "local") {
 #'
 #' @param db_host
 #' @param db_port
-#' @param db_database
+#' @param db_name
 #' @param db_user
 #' @param db_pwd
 #'
@@ -198,11 +346,36 @@ pg_connection <- function(db_driver = RPostgres::Postgres(),
 }
 
 
+#' @title MySQL Connection
+#'
+#' @param db_host
+#' @param db_port
+#' @param db_name
+#' @param db_user
+#' @param db_pwd
+#'
+ms_connection <- function(db_driver = RMySQL::MySQL(),
+                          db_host = ms_host(),
+                          db_port = ms_port(),
+                          db_name = ms_database(),
+                          db_user = ms_user(),
+                          db_pwd = ms_pwd()) {
+
+  RMySQL::dbConnect(db_driver,
+                    host = db_host,
+                    port = db_port,
+                    dbname = db_name,
+                    user = db_user,
+                    password = db_pwd)
+
+}
+
+
 #' @title Establish a connection
 #'
 #' @param db_host
 #' @param db_port
-#' @param db_database
+#' @param db_name
 #' @param db_user
 #' @param db_pwd
 #' @param db_file
@@ -219,15 +392,12 @@ db_connection <- function(db_driver = RPostgres::Postgres(),
 
   if (str_detect(db_name, ".*[.]db$|.*[.]sqlite$|.*[.]sqlite3$")) {
     conn <- RSQLite::dbConnect(RSQLite::SQLite(), db_name)
-  } else if("MySQLDriver" %in% class(db_driver)) {
-    conn <- RMySQL::dbConnect(db_driver,
-                              host = db_host,
-                              port = db_port,
-                              dbname = db_name,
-                              user = db_user,
-                              password = db_pwd)
-  } else {
+  } else if ("MySQLDriver" %in% class(db_driver)) {
+    conn <- ms_connection(db_driver, db_host, db_port, db_name, db_user, db_pwd)
+  } else if ("RPostgres" %in% class(db_driver)) {
     conn <- pg_connection(db_driver, db_host, db_port, db_name, db_user, db_pwd)
+  } else {
+    usethis::ui_warn("Unknown or unsupported DB Driver - please check the db_driver value.")
   }
 
   return(conn)
