@@ -394,7 +394,7 @@ db_connection <- function(db_driver = RPostgres::Postgres(),
     conn <- RSQLite::dbConnect(RSQLite::SQLite(), db_name)
   } else if ("MySQLDriver" %in% class(db_driver)) {
     conn <- ms_connection(db_driver, db_host, db_port, db_name, db_user, db_pwd)
-  } else if ("RPostgres" %in% class(db_driver)) {
+  } else if ("PqDriver" %in% class(db_driver)) {
     conn <- pg_connection(db_driver, db_host, db_port, db_name, db_user, db_pwd)
   } else {
     usethis::ui_warn("Unknown or unsupported DB Driver - please check the db_driver value.")

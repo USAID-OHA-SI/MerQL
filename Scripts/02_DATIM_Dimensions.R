@@ -1,5 +1,17 @@
+##  PROJECT: MerQL
+##  AUTHOR:  Baboyma Kagniniwa | USAID
+##  PURPOSE: Extract Datim Data Exchange Resources
+##  LICENCE: MIT
+##  DATE:    2021-10-08
+##  UPDATED: 2023-05-26
+
+# Libraries ----
+
 library(tidyverse)
 library(glamr)
+library(grabr)
+
+# Global ----
 
 f_nameable <- c('id', 'name', 'shortName', 'code', 'description', 'created', 'lastUpdated')
 f_identifiable <- c('id', 'name', 'code', 'created', 'lastUpdated')
@@ -24,7 +36,7 @@ datim_dimension(name = "Disaggregation Type")
 datim_dim_items(dimension = "Disaggregation Type")
 
 datim_dim_items(dimension = "Disaggregation Type", fields = "*")
-datim_dim_items(dimension = "Disaggregation Type")
+
 
 # Funding Agency
 

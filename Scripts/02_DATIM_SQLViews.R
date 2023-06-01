@@ -23,13 +23,14 @@
   dtm <- lazy_secrets("datim")
 
   # DB Connection
-  conn <- db_connection(db_name = pg_database())
+  #conn <- db_connection(db_name = pg_database())
+  conn <- db_connection()
 
   # Schema
   schema <- "datim"
 
   # Add if does not exists
-  db_schema(conn, name = "cir")
+  #db_schema(conn, name = "cir")
 
 # SQL Views ----
 
