@@ -1,7 +1,7 @@
 ---
 title: "Introduction to SQL"
 subtitle: "Huge files should not hold you back - prep analytics ready datasets, re-use, and save time"
-author: "Baboyma Kagniniwa | USAID/GH/OHA"
+author: "Baboyma Kagniniwa | GH/Office of HIV/AIDS"
 date:   "2023-09-20"
 #format: html
 format: 
@@ -17,8 +17,8 @@ format:
 editor: visual
 ---
 
-```{r}
-#| label: setup
+```{r setup}
+#| label: setup-libs
 #| echo: false
 #| eval: false
 
@@ -30,15 +30,20 @@ library(glitr)
 library(glue)
 library(duckdb)
 
+```
+
+```{r setup}
+#| label: setup-dirs
+#| echo: false
+#| eval: false
+
 # Data dir & files
 dir_data <- "./data"
 
 file_db <- "./data/ou_im.duckdb"
 file_output <- "./data/msd_ou_im.csv"
 
-file_msd <- si_path(
-    type = "path_msd"
-  ) %>% 
+file_msd <- si_path(type = "path_msd") %>% 
   paste0("./../../", .) %>% 
   return_latest("OU_IM")
 
@@ -76,9 +81,10 @@ SQL and databases lend themselves to a stream lined process to
 
 ## Objectives
 
-1. Get an overview of a database
-2. Get an overview of SQL Commands
-3. Practice designing a database
+1. Overview of a database
+2. Introduction SQL Language & Commands
+3. Practice designing and using database
+4. Use Cases
 
 ## Outline
 

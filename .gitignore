@@ -74,3 +74,6 @@ AI/*
 GIS/*
 Images/*
 Graphics/*
+Documents/*
+!Documents/*.qmd
+!Documents/*.rmd
