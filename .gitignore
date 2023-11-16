@@ -34,19 +34,37 @@ vignettes/*.pdf
 # R Environment Variables
 .Renviron
 
+.Rdata
+.httr-oauth
+.DS_Store
+
+
 #no data
 *.csv
+*.gz
 *.txt
 *.rds
 *.xlsx
 *.xls
 *.zip
 *.png
-*.twbx
 *.pptx
+*.tfl
+*.twb
+*.twbx
+*.tbs
+*.tbm
+*.hyper
+*.sql
+*.parquet
+*.svg
+*.dfx
+*.json
+*.dta
+*.shp
+*.dbf
+*.duckdb
 *.db
-*.sqlite
-*.sqlite3
 
 #nothing from these folders
 AI/*
@@ -54,26 +72,7 @@ GIS/*
 Images/*
 Graphics/*
 Data/*
-.Rdata
-.httr-oauth
-.DS_Store
-
-#no data
-*.csv
-*.txt
-*.rds
-*.xlsx
-*.xls
-*.zip
-*.png
-*.twbx
-*.pptx
-
-#nothing from these folders
-AI/*
-GIS/*
-Images/*
-Graphics/*
+Dataout/*
 Documents/*
+Documents/SQL/data/*.duckdb
 !Documents/*.qmd
-!Documents/*.rmd

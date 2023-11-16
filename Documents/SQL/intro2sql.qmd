@@ -1,9 +1,14 @@
 ---
 title: "Introduction to SQL"
 subtitle: "Huge files should not hold you back - prep analytics ready datasets, re-use, and save time"
-author: "Baboyma Kagniniwa | GH/Office of HIV/AIDS"
-date:   "2023-09-20"
-#format: html
+author: 
+  - name: "Baboyma Kagniniwa"
+    email: "bkagniniwa@usaid.gov"
+    affiliation: "Ubuted States Agency for International Development, Bureau of Global Health, Office of HIV/AIDS, Washington DC, United States"
+date: "2023-09-20"
+excecute:
+  eval: false
+  echo: false
 format: 
   revealjs:
     multiplex: true
@@ -12,15 +17,16 @@ format:
     slide-number: h/v  
     callout-appearance: simple
     title-slide-attributes: 
-      #data-background-image: images/data-unsplash.jpg
+      data-background-image: images/data-unsplash.jpg
       data-background-size: cover
 editor: visual
 ---
 
-```{r setup}
+```{r}
 #| label: setup-libs
 #| echo: false
 #| eval: false
+#| message: false
 
 # Libraries
 library(tidyverse)
@@ -29,18 +35,25 @@ library(glamr)
 library(glitr)
 library(glue)
 library(duckdb)
-
 ```
 
-```{r setup}
+```{r}
 #| label: setup-dirs
 #| echo: false
 #| eval: false
+#| message: false
 
 # Data dir & files
 dir_data <- "./data"
 
-file_db <- "./data/ou_im.duckdb"
+# Table name
+tname <- "ouxim"
+
+# Database name
+dbname <- "merdata"
+
+file_db <- paste0("./data/", dbname, ".duckdb")
+
 file_output <- "./data/msd_ou_im.csv"
 
 file_msd <- si_path(type = "path_msd") %>% 
@@ -53,257 +66,429 @@ if(!file.exists(file_output)) {
     readr::write_csv(file = "./data/msd_ou_im.csv", na = "")
 }
 
-# DB Connection
-
-# to use a database file
-# dbconn <- dbConnect(
-#   drv = duckdb::duckdb(), 
-#   dbdir = file_db, 
-#   #dbdir = file_db, 
-#   read_only = FALSE)
-
-# to use in memory database
-# mconn <- conn = dbConnect(
-#   drv = duckdb::duckdb(), 
-#   dbdir = ":memory:")
-
 ```
 
-## Background{background-color='{scooter}'}
+```{r conn}
+#| label: setup-conn
+#| echo: false
+#| eval: false
+
+# Disconnect DB
+if (exists("dbconn")) {
+  #duckdb::duckdb_shutdown(drv = dbconn)
+  dbDisconnect(conn = dbconn, shutdown = TRUE)
+}
+
+# # to use in memory database
+# dbconn <- dbConnect(
+#   drv = duckdb::duckdb(),
+#   dbdir = ":memory:")
+
+# to use a database file
+dbconn <- dbConnect(
+  drv = duckdb::duckdb(),
+  dbdir = file_db,
+  read_only = FALSE)
+```
+
+```{r}
+#| label: setup-load
+#| echo: false
+#| eval: false
+#| message: false
+
+# Copy MSD data to DB table
+file_msd %>% 
+  read_psd() %>% 
+  duckdb::dbWriteTable(conn = dbconn, 
+                       name = tname, 
+                       value = .,
+                       overwrite = TRUE)
+```
+
+## Background {background-color="#1e87a5"}
 
 Why use SQL in our line of work?
 
-Object storage and files management are just too difficult on a personal computer. To answer simple question, GH/OHA Data analysts / scientists and SI Advisers are required to load all data exported from Panorama, Genies and/or Google files, munge and analyse before providing an answer. Even more some of the pre-work is done by their peers, most data engineers and other data analysts / scientists will still need to re-run / re-execute the steps before proceeding. 
+Object storage and files management are just too difficult on a personal computer. To answer simple question, GH/OHA Data analysts / scientists and SI Advisers are required to load all data exported from Panorama, Genies and/or Google files, munge and analyse before providing an answer. Even more some of the pre-work is done by their peers, most data engineers and other data analysts / scientists will still need to re-run / re-execute the steps before proceeding.
 
 Files size, the possibility of data corruptions ...
 
-SQL and databases lend themselves to a stream lined process to 
+SQL and databases lend themselves to a stream lined process to
 
 ## Objectives
 
-1. Overview of a database
-2. Introduction SQL Language & Commands
-3. Practice designing and using database
-4. Use Cases
+1.  Overview of a database
+2.  Introduction SQL Language & Commands
+3.  Practice designing and using databases
+4.  Use Cases
 
 ## Outline
 
+1. Databases
+
+2. Structured Query Language (SQL)
+
+3. R dplyr / dbplyr packages & SQL
+
+4. Use Cases
+
+## Outline::database
+
 1.  Databases
 
-1.1. Definition 
+1.1. Definition
 
-1.2. Core components 
+1.2. Core components
 
-1.3. Database models 
-  
-2.  SQL - Structured Query Language
+1.3. Database models
+
+## Outline::sql
+
+2.  Structured Query Language (SQL)
 
 2.1. Definition
 
-2.2. Core concepts & SQL Statements
+2.2. Core concepts & SQL Commands
 
 2.3. PLSQL - Procedural Language for SQL
-  
-3.  SQL & R dbplyr package 
 
-3.1. Conversion of dplyr functions into SQL 
+## Outline::dbplyr
+
+3.  R dplyr / dbplyr packages & SQL
+
+3.1. Conversion of dplyr functions into SQL
 
 3.2. Examples of dbplyr flows
-  
+
+## Outline::examples
+
 4.  Use Cases
 
-4.1. Extract DATIM Reference Datasets into a DuckDB
+4.1. Configure DuckDB and load DATIM reference datasets 
 
-4.2. Parse out MER Structured Datasets into a relational
-database
+4.2. Parse out MER Structured Datasets into a relational database
 
 # Database
 
-What is a database?
-
-A database (DB) is a collection of structured information or data stored electronically on a computer system and managed by a Database Management System (DBMS).
-
-Examples of DBMS are
+What is a database and why should you use one?
 
 ## Definition
+
+A database (DB) is a collection of structured information or data stored electronically on a computer system and managed by a Database Management System (DBMS).
 
 In computing, a database is an organized collection of data (also known as a data store) stored and accessed electronically through the use of a database management system.
 
 ## Type of databases
 
-DuckDB is a columnar Database. Everything is organized by column / field. 
+DuckDB is a columnar Database. Everything is organized by column / field.
 
-## Core Components of a database
+## Core components of a database
 
-A database has 5 main components: 
+A database has 5 main components:
 
-- Hardware: Computers (personal or Server) + Hard drives
-- Software: Programs used to operate the database
-- Data: Information stored on the database
-- Procedures: Collection of instructions to operate 
-- Data Access Language: collection of commands to operate
+-   **Hardware**: Computers (personal or Server) + Hard drives
+-   **Software**: Programs used to operate the database
+-   **Data**: Information stored on the database
+-   **Procedures**: Collection of instructions to operate
+-   **Data Access Language**: collection of commands to access
 
-## Core Components::Hardware
+## Core component::hardware
 
 Computers (personal or Server) + Hard drives
 
-## Core Components::Software
+## Core component::software
 
-Programs used to access and manage data stored on a  database. These include OS, network, and database programs.
+Programs used to access and manage data stored on a database. These include computer's operating system, network, and database programs.
 
-## Core Components::Data
+## Core component::data
 
 The data component of a database is a collection of information stored as tables, ...
 
-## Core Components::Procedures
+## Core component::procedures
 
-Database procedures are a collection of instructions used to install, configure, access, manage, and operate a database management system.
+Database procedures are a **collection of instructions** used to install, configure, access, manage, and operate a database management system.
 
-## Core Components::Access
+## Core component::access
 
-Collection of commands, also known as programming language, used to access, create, manage data, tables and other database entities.
+A database access component is a **collection of commands**, also known as **programming language**, used to access, create, manage data, tables and other database entities.
 
 ## Database Models
 
-There are 5 types of Database Structure Models:
+A **database model** is a chart that shows the logical structure of a database. This includes the relationships and constraints that determine how data can be store and accessed. 
 
+There are 5 types of **database structure models**[^1]: 
 
-- Hierarchical - 
-- Network - 
-- Relational - Entity-relationship
-- Object-oriented - 
-- NoSQL - 
-- Graph - 
+Hierarchical, Network, Relational, Object-oriented, Entity-relationship, Document, Entity-attribute-value, Star, Object-relational
+
+## Database Models (cont.)
+
+-   Hierarchical - data is organized into tree-like structure
+-   Network - similar to hierarchical models and adds many-to-many relationships
+-   Relational - organized into tables are that linked by specific column(s)
+-   Object-oriented - collection of objects with associated features and methods
+-   NoSQL - graph, multivalue, document models
 
 ## Database Challenges
 
-While it's often easy to setup a database and fun to with it, this comes with challenges. Below are some of them: 
+The main challenges of setting up and using a database are:
 
-- Data Security: making sure only people with the permission have access to your database and that they are doing exactly what they are supposed to be doing. 
+-   Data Security: making sure only people with the permission have access to your database and that they are doing exactly what they are supposed to be doing.
 
-- Data Integrety: ensuring data can be trusted
+-   Data Integrity: ensuring data can be trusted
 
-- Database Performance: is the database still performing as planned? More data and complex data models can slow it down. 
+-   Performance: is the database still performing as planned? More data and complex data models can slow it down.
 
-- Database Integration: what are you data sources and how easily can they be linked to one another?
+-   Integration: what are you data sources and how easily can they be linked to one another?
 
-# SQL - Structured Query Language
+# Structured Query Language (SQL)
 
 SQL as database programming language
 
 ## Definition & History
 
-SQL, also known as Structured Query Language, is a programing language designed for managing data stored in a database.
+**Structured Query Language**, also known as **SQL**, is a programming language designed for storing and processing information stored in a relational database^[[Amazon Web Service](https://aws.amazon.com/what-is/sql/)].
 
-The language was initial developed at IBM ... 
+SQL was invented in 1070s at IBM based on a relational database model and initial known as the **Structured English Query Language (SEQUEL)**. The name will later be shorten to SQL, with Oracle (formally known as Relational Software) becoming the first vendor the offer a commercial SQL **Relational Database Management System**.
 
-It's now the 2nd most used programming languages in the world.
+## Core SQL languages
 
-## Core languages
+SQL is organized in 5 main groups of commands, also called SQL Languages.
 
-SQL is grouped in 5 main groups of commands, also called SQL Languages.
+1.  DDL - Data Definition Language
+2.  DML - Data Management Language
+3.  DQL - Data Query Language
+4.  DCL - Data Control Language
+5.  TCL - Transaction Control Language
 
-1. DDL - Data Definition Language
-2. DML - Data Management Language
-3. DQL - Data Query Language
-4. DCL - Data Control Language
-5. TCL - Transaction Control Language
-
-:::{.callout-note appearance="simple"}
+::: {.callout-note appearance="simple"}
 One could argue that there are only 4, given that #3 has only 1 command that is primarily used to retrieve data from a database.
 :::
 
-## Core language - DDL
+## SQL - DDL
 
-DDL is comprised of a group of SQL commands used to create and perform structural changes to physical tables in databases.
+DDL is comprised of a group of SQL commands used to **create and perform structural changes** to tables within a database. These types of changes are auto-commit and made available to users immediately. The commands are:
 
-Changes are auto-commit and made available to users immediately.
+-   CREATE
+-   DROP
+-   ALTER
+-   TRUNCATE
 
-The core commands are:
+## Test {visibility="hidden"}
 
-- CREATE
-- DROP
-- ALTER
-- TRUNCATE
-
-## Core language - DDL::CREATE
-
-DDL/CREATE Command is used create databases and trables.
-
-```
-CREATE DATABASE <database-name>;
+``` {#lst-customers .sql lst-cap="Customers Query"}
+SELECT * FROM Customers;
 ```
 
-```
-CREATE TABLE <table-name> (...);
-```
+Then we query the customers database (@lst-customers).
 
-:::{.collout-note}
-Creating a table assumes you are already connected to an existing database and requires a pre-definition of columns and their respective data types. Eg: `value int`
+:::{.callout-note}
+Note that code listings currently only work with *display code blocks* (as opposed to executable code blocks). If you wish to both execute and reference a code block, use a combination of a display block and a code block with `echo: false` in the cell YAML.
 :::
 
-## Core language - DDL::DROP
+## SQL - DDL::CREATE
 
-```
-DROP DATABASE <database-name>;
+The **CREATE** command is used with the keyword **DATABASE** to create / add new database to a RDBMS.
+
+::: {#lst-create-database auto-animate=true}
+
+```{.sql}
+#| label: query-create    
+#| echo: false
+#| eval: false
+
+-- Create new database generic statement
+CREATE {DATABASE | SCHEMA} [IF NOT EXISTS] <database-name> [options] ...;
+
+-- Create new database with default options
+CREATE DATABASE <database-name>;
+
+-- Create new database with specific options
+CREATE DATABASE datim;
 ```
 
-```
-DROP TABLE <table-name>;
+Use **SHOW** command with the keyword **DATABASES** to list all databases available in your RDBMS.
+
+```{.sql}
+SHOW DATABASES;
 ```
 
-## Core language - DDL::ALTER
+Users can only work with **one** database at the time. The command **USE** allows users to select / switch to a specific database. The database name can also be specified as the connection parameter.
 
-ALTER SQL Command is used to modify the structure of and existing table or database entities.
+```{.sql}
+USE datim;
+```
+:::
 
-```
-ALTER <table-name> RENAME <old-column> <new-colnum>;
+## SQL - DDL::CREATE
+
+CREATE command can also be used to create / define a new table. This command is used in combination with the keyword **TABLE** and requires the list of column names along with their respective data types
+
+::: #lst-create-table1
+
+```{.sql}          
+CREATE TABLE <table-name> (
+  col1 datatype,
+  col2 datatype,
+  col3 datatype,
+  ....
+  coln datatype
+);
 ```
 
+:::
+
+:::{.callout-note}
+Creating a table assumes you are already connected to an existing database.
+:::
+
+## SQL - DDL::CREATE
+
+Here is an example of table definition with data types.
+
+:::{#lst-create-table2}
+```{.sql}
+CREATE TABLE reports (
+  col1 INT,
+  col2 VARCHAR(50),
+  col3 CHAR(1),
+  ....
+  coln TEXT
+);
 ```
+:::
+
+:::{.callout-note}
+Tables data types and other options are Vendor/RDBMS specific.
+:::
+
+## SQL - DDL::CREATE
+
+Here is another example of table definition with additional options used to enforce rules and help with data entry.
+
+::: #lst-create-table3
+```{.sql}          
+CREATE TABLE <table-name> (
+  col1 INT AUT_INCREMENT PRIMARY KEY,
+  col2 VARCHAR(50) NOT NULL,
+  col3 CHAR(1) NOT NULL DEFAULT 'Y',
+  ....
+  coln TEXT
+);
+```
+:::
+
+:::{.callout-note}
+By default all table columns can accept null values unless instructed not to.
+:::
+
+## SQL - DDL::CREATE
+
+The main data types^[[MySQL Data Types](https://dev.mysql.com/doc/refman/8.0/en/data-types.html)] used in MySQL Databases are:
+
+- Numeric: TINYINT, SMALLINT, MEDIUMINT, INT (INTEGER), BIGINT (SERIAL), FLOAT, DOUBLE, BIT
+
+- String: CHAR, VARCHAR, BINARY, VARBINARY, BLOB, TEXT, ENUM, and SET
+
+- Date and Time: DATE, TIME, DATETIME, TIMESTAMP, and YEAR
+
+- Spatial: GEOMETRY (GEOMETRYCOLLECTION), POINT (MULTIPOINT), LINESTRING (MULTILINESTRING), POLYGON (MULTIPOLYGON)
+
+- JSON
+
+:::{.callout-note}
+All columns do support default values. These are used when the omitting a specific column with default value set.
+:::
+
+## SQL - DDL::CREATE
+
+Table columns data types do come with additional options and attributes
+
+- NOT NULL: used when values are not required. By default, all columns accept null values.
+
+- Visible / Invisible: used to hide columns
+
+- Auto Increment: used only on interger and floating columns. This option helps with auto population of a specific column.
+
+- Constraint 
+
+- Primary Key / Unique
+
+- Foreign Key / Reference
+
+- Check
+
+## SQL - DDL::ALTER
+
+ALTER SQL Command is used to modify the structure of an existing tables or other entities and their respective options. ALTER command is mainly used to 1) add, 2) modify, or 3) drop specific characterics of a database and/or its entities.
+
+```         
 ALTER <table-name> ADD <new-column> <data-type>;
 ```
 
-## Core language - DDL::TRUNCATE
-
-TRUNCATE is used to delete everything from an existing table. 
-
+```         
+ALTER <table-name> ADD <new-column> <data-type> AFTER <column-x>;
 ```
+
+```         
+ALTER <table-name> DROP <new-column>;
+```
+
+```         
+ALTER <table-name> RENAME <old-column> <new-colnum>;
+```
+
+
+
+## SQL - DDL::DROP
+
+```         
+DROP TABLE <table-name>;
+```
+
+```         
+DROP DATABASE <database-name>;
+```
+
+## SQL - DDL::TRUNCATE
+
+TRUNCATE is used to delete everything from an existing table.
+
+```         
 TRUNCATE <table-name>;
 ```
 
-```
+```         
 DELETE * FROM <table-name>;
 ```
 
-:::{.collout-warning}
+::: collout-warning
 Be careful when using `TRUNCATE` ...
 :::
 
+## SQL - DML
 
-## Core language - DML
+DML is a set of SQL commands used to manage data within a databases. There are 4 main operations available through a SQL statement or command: Create, Insert, Update, and Delete. These are also known as `CRUD`. Some of these commands can be saved and/or rolled back when things go wrong.
 
-DML is a set of SQL commands used to manage data within a  databases.
-There are 4 main operations available through a SQL statement or command: Create, Insert, Update, and Delete. These are also known as `CRUD`.
-Some of these commands can be saved and/or rolled back when things go wrong.
+The commands are:
 
-The commands are: 
+-   INSERT (Create)
+-   SELECT (Read) [^2]
+-   UPDATE (Update)
+-   DELETE (Delete)
 
-- INSERT (Create)
-- SELECT (Read) ^[Can be used along side INSERT]
-- UPDATE (Update)
-- DELETE (Delete)
+[^2]: Can be used along side INSERT
 
-## Core language - DML::INSERT
+## SQL - DML::INSERT
 
-```
+```         
 INSERT INTO <table-name> (col1, col2, coln)
 VALUES (val1, val2, valn);
 ```
 
-## Core language - DML::UPDATE
+## SQL - DML::UPDATE
 
-```
+```         
 UPDATE <table-name> SET 
 col1 = val1, 
 col2 = val2, 
@@ -311,97 +496,98 @@ coln = valn
 WHERE colx = 'xyz';
 ```
 
-:::{.callout-warning}
-Similar to DELETE, be careful using this without a `WHERE` clause. 
+::: callout-warning
+Similar to DELETE, be careful using this without a `WHERE` clause.
 :::
 
-## Core language - DML::DELETE
+## SQL - DML::DELETE
 
-:::{.callout-warning}
+::: callout-warning
 Be careful when using `DELETE` without a `WHERE` clause. This command can act as `TRUNCATE`.
 :::
 
-## Core language - DQL
+## SQL - DQL
 
 DQL is a set of commands used to extract data from a database. This is a read-only command used to describe what and how much data is needed.
 
-`SELECT` is the only command in this group. 
+`SELECT` is the only command in this group.
 
-## Core language - DQL::SELECT
+## SQL - DQL::SELECT
 
-```
-SELECT * FROM <table-name>;
-```
-
-```
-SELECT col1, col2, coln FROM <table-name>;
+```         
+SELECT * FROM ouxim;
 ```
 
+```         
+SELECT col1, col2, coln 
+FROM ouxim;
 ```
+
+```         
 SELECT col1, col2 as column2, coln as colname
-FROM <table-name>;
+FROM ouxim;
 ```
 
-:::{.callout-note}
+::: callout-note
 Note the use of aliases to rename columns while querying data.
 :::
 
-## Core languages - DCL
+## SQL - DCL
 
 DCL SQL commands are used to manage access, rights and permissions to a database and its related entities.
 
-Some of the commands are: 
+Some of the commands are:
 
-- GRANT
-- REVOKE
+-   GRANT
+-   REVOKE
 
-## Core languages - DCL::GRANT
+## SQL - DCL::GRANT
 
-`GRANT` command is used to give permission(s) / privilege(s) to a user on specific database resource(s). 
+`GRANT` command is used to give permission(s) / privilege(s) to a user on specific database resource(s).
 
-The permission could be at least one of these: 
+The permission could be at least one of these:
 
-- SELECT, UPDATE, INSERT, DELETE
-- ALL - All the above privileges
+-   SELECT, UPDATE, INSERT, DELETE
+-   ALL - All the above privileges
 
-```
+```         
 # Grant insert permission on table1 to user 1
 GRANT INSERT ON <table-name> TO <user-name>;
 ```
 
-```
+```         
 # Grant insert permission with delegation
 GRANT INSERT ON <table-name> TO <user-name> WITH GRANT OPTION;
 ```
 
-:::{.callout-note}
+::: callout-note
 Some DBMS programs allows DB administrators to grant `SELECT` (Read) privileges to all resources within a database / schema users with access to the database.
 :::
 
-## Core languages - DCL::REVOKE
+## SQL - DCL::REVOKE
 
 `REVOKE` command is used to withdraw permissions / privileges from a user on specific resource(s).
 
-```
+```         
 # Withdraw UPDATE privilege
 REVOKE UPDATE ON <table-name> FROM <user-name>;
 ```
 
-## Core languages - TCL
+## SQL - TCL
 
-TCL SQL commands are used to manage transactions. Eg: commit or roll back all changes applied after the last commit. 
+TCL SQL commands are used to manage transactions. Eg: commit or roll back all changes applied after the last commit.
 
 The commands are: COMMIT, ROLLBACK
 
-:::{.callout-note}
+::: callout-note
 A transaction is the smallest unit of work performed against a database.
 :::
 
-## Core languages - TCL::COMMIT
+## SQL - TCL::COMMIT
 
 The COMMIT command allows the user to apply / store changes made during a SQL Transaction. A transaction could include 1 or more SQL Statements.
 
-```
+```         
 # Make sure auto commit is off
 SET AUTOCOMMIT OFF;
 
@@ -414,15 +600,15 @@ VALUES (1, 'Hello Mars', 'This is a test note');
 COMMIT;
 ```
 
-:::{.callout-note}
+::: callout-note
 Some of the database (MySQL) will auto-commit changes unless otherwise specified / configured. Make sure to set AUTOCOMMIT Mode to false.
 :::
 
-## Core languages - TCL::ROLLBACK
+## SQL - TCL::ROLLBACK
 
 ROLLBACK is used to revert / undo changes made during a SQL transaction.
 
-```
+```         
 # Make sure auto commit is off
 SET AUTOCOMMIT OFF;
 
@@ -433,3 +619,5 @@ WHERE col1 = 'val1';
 # Rollback the delete statement
 ROLLBACK;
 ```
+
+# Acknowledgements
